@@ -1,5 +1,5 @@
 import type { AssistantMessage, Tool } from "@mariozechner/pi-ai";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,6 +59,14 @@ const makeModel = (provider: string, modelId: string) => ({
 });
 
 const makeTempHome = () => mkdtempSync(join(tmpdir(), "summarize-daemon-agent-"));
+
+const makeFakeCliBin = (binary: string) => {
+  const dir = mkdtempSync(join(tmpdir(), `summarize-daemon-cli-${binary}-`));
+  const file = join(dir, binary);
+  writeFileSync(file, "#!/bin/sh\nexit 0\n");
+  chmodSync(file, 0o755);
+  return { dir, file };
+};
 
 beforeEach(() => {
   mockCompleteSimple.mockReset();
@@ -252,6 +260,7 @@ describe("daemon/agent", () => {
 
   it("falls back to CLI auto attempts when no API-key agent model is available", async () => {
     const home = makeTempHome();
+    const fakeCodex = makeFakeCliBin("codex");
     const autoSpy = vi.spyOn(modelAuto, "buildAutoModelAttempts").mockReturnValue([
       {
         transport: "cli",
@@ -266,7 +275,7 @@ describe("daemon/agent", () => {
 
     try {
       const assistant = await completeAgentResponse({
-        env: { HOME: home, PATH: process.env.PATH ?? "" },
+        env: { HOME: home, PATH: fakeCodex.dir },
         pageUrl: "https://example.com",
         pageTitle: null,
         pageContent: "Hello world",
