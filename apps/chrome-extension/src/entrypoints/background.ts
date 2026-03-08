@@ -2,8 +2,6 @@ import type { AssistantMessage, Message } from "@mariozechner/pi-ai";
 import { shouldPreferUrlMode } from "@steipete/summarize-core/content/url";
 import { defineBackground } from "wxt/utils/define-background";
 import type { SseSlidesData } from "../../../../src/shared/sse-events.js";
-import { readAgentResponse } from "../lib/agent-response";
-import { buildChatPageContent } from "../lib/chat-context";
 import { buildDaemonRequestBody, buildSummarizeRequestBody } from "../lib/daemon-payload";
 import { createDaemonRecovery, isDaemonUnreachableError } from "../lib/daemon-recovery";
 import { createDaemonStatusTracker } from "../lib/daemon-status";
@@ -19,6 +17,7 @@ import {
 import { daemonHealth, daemonPing, friendlyFetchError } from "./background/daemon-client";
 import { ensureChatExtract, primeMediaHint, type CachedExtract } from "./background/extract-cache";
 import { createHoverController, type HoverToBg } from "./background/hover-controller";
+import { handlePanelAgentRequest, handlePanelChatHistoryRequest } from "./background/panel-chat";
 import { createPanelSessionStore, type PanelSession } from "./background/panel-session-store";
 import { resolvePanelState, type PanelUiState } from "./background/panel-state";
 import {
@@ -709,129 +708,29 @@ export default defineBackground(() => {
             return;
           }
 
-          session.agentController?.abort();
-          const agentController = new AbortController();
-          session.agentController = agentController;
-          const isStillActive = () =>
-            session.agentController === agentController && !agentController.signal.aborted;
-
           const agentPayload = raw as {
             requestId: string;
             messages: Message[];
             tools: string[];
             summary?: string | null;
           };
-          const summaryText =
-            typeof agentPayload.summary === "string" ? agentPayload.summary.trim() : "";
           const slidesContext = buildSlidesText(cachedExtract.slides, settings.slidesOcrEnabled);
-          const pageContent = buildChatPageContent({
-            transcript: cachedExtract.transcriptTimedText ?? cachedExtract.text,
-            summary: summaryText,
-            summaryCap: settings.maxChars,
-            slides: slidesContext,
-            metadata: {
-              url: cachedExtract.url,
-              title: cachedExtract.title,
-              source: cachedExtract.source,
-              extractionStrategy:
-                cachedExtract.source === "page"
-                  ? "readability (content script)"
-                  : (cachedExtract.diagnostics?.strategy ?? null),
-              markdownProvider: cachedExtract.diagnostics?.markdown?.used
-                ? (cachedExtract.diagnostics?.markdown?.provider ?? "unknown")
-                : null,
-              firecrawlUsed: cachedExtract.diagnostics?.firecrawl?.used ?? null,
-              transcriptSource: cachedExtract.transcriptSource,
-              transcriptionProvider: cachedExtract.transcriptionProvider,
-              transcriptCache: cachedExtract.diagnostics?.transcript?.cacheStatus ?? null,
-              attemptedTranscriptProviders:
-                cachedExtract.diagnostics?.transcript?.attemptedProviders ?? null,
-              mediaDurationSeconds: cachedExtract.mediaDurationSeconds,
-              totalCharacters: cachedExtract.totalCharacters,
-              wordCount: cachedExtract.wordCount,
-              transcriptCharacters: cachedExtract.transcriptCharacters,
-              transcriptWordCount: cachedExtract.transcriptWordCount,
-              transcriptLines: cachedExtract.transcriptLines,
-              transcriptHasTimestamps: Boolean(cachedExtract.transcriptTimedText),
-              truncated: cachedExtract.truncated,
+          await handlePanelAgentRequest({
+            session,
+            requestId: agentPayload.requestId,
+            messages: agentPayload.messages,
+            tools: agentPayload.tools,
+            summary: agentPayload.summary,
+            settings,
+            cachedExtract,
+            slidesText: slidesContext,
+            send: (msg) => {
+              void send(session, msg as BgToPanel);
             },
+            sendStatus: (status) => sendStatus(session, status),
+            fetchImpl: fetch,
+            friendlyFetchError,
           });
-          const cacheContent = cachedExtract.transcriptTimedText ?? cachedExtract.text;
-
-          sendStatus(session, "Sending to AI…");
-
-          try {
-            const res = await fetch("http://127.0.0.1:8787/v1/agent", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${settings.token.trim()}`,
-                "content-type": "application/json",
-                Accept: "text/event-stream",
-              },
-              body: JSON.stringify({
-                url: cachedExtract.url,
-                title: cachedExtract.title,
-                pageContent,
-                cacheContent,
-                messages: agentPayload.messages,
-                model: settings.model,
-                length: settings.length,
-                language: settings.language,
-                tools: agentPayload.tools,
-                automationEnabled: settings.automationEnabled,
-              }),
-              signal: agentController.signal,
-            });
-            if (!res.ok) {
-              const rawText = await res.text().catch(() => "");
-              const isMissingAgent =
-                res.status === 404 || rawText.trim().toLowerCase() === "not found";
-              const error = isMissingAgent
-                ? "Daemon does not support /v1/agent. Restart the daemon after updating (summarize daemon restart)."
-                : rawText.trim() || `${res.status} ${res.statusText}`;
-              throw new Error(error);
-            }
-
-            let sawAssistant = false;
-            for await (const event of readAgentResponse(res)) {
-              if (!isStillActive()) return;
-              if (event.type === "chunk") {
-                void send(session, {
-                  type: "agent:chunk",
-                  requestId: agentPayload.requestId,
-                  text: event.text,
-                });
-              } else if (event.type === "assistant") {
-                sawAssistant = true;
-                void send(session, {
-                  type: "agent:response",
-                  requestId: agentPayload.requestId,
-                  ok: true,
-                  assistant: event.assistant,
-                });
-              }
-            }
-
-            if (!sawAssistant) {
-              throw new Error("Agent stream ended without a response.");
-            }
-
-            sendStatus(session, "");
-          } catch (err) {
-            if (agentController.signal.aborted) return;
-            const message = friendlyFetchError(err, "Chat request failed");
-            void send(session, {
-              type: "agent:response",
-              requestId: agentPayload.requestId,
-              ok: false,
-              error: message,
-            });
-            sendStatus(session, `Error: ${message}`);
-          } finally {
-            if (session.agentController === agentController) {
-              session.agentController = null;
-            }
-          }
         })();
         break;
       case "panel:chat-history":
@@ -890,86 +789,17 @@ export default defineBackground(() => {
             return;
           }
 
-          const summaryText = typeof payload.summary === "string" ? payload.summary.trim() : "";
-          const pageContent = buildChatPageContent({
-            transcript: cachedExtract.transcriptTimedText ?? cachedExtract.text,
-            summary: summaryText,
-            summaryCap: settings.maxChars,
-            metadata: {
-              url: cachedExtract.url,
-              title: cachedExtract.title,
-              source: cachedExtract.source,
-              extractionStrategy:
-                cachedExtract.source === "page"
-                  ? "readability (content script)"
-                  : (cachedExtract.diagnostics?.strategy ?? null),
-              markdownProvider: cachedExtract.diagnostics?.markdown?.used
-                ? (cachedExtract.diagnostics?.markdown?.provider ?? "unknown")
-                : null,
-              firecrawlUsed: cachedExtract.diagnostics?.firecrawl?.used ?? null,
-              transcriptSource: cachedExtract.transcriptSource,
-              transcriptionProvider: cachedExtract.transcriptionProvider,
-              transcriptCache: cachedExtract.diagnostics?.transcript?.cacheStatus ?? null,
-              attemptedTranscriptProviders:
-                cachedExtract.diagnostics?.transcript?.attemptedProviders ?? null,
-              mediaDurationSeconds: cachedExtract.mediaDurationSeconds,
-              totalCharacters: cachedExtract.totalCharacters,
-              wordCount: cachedExtract.wordCount,
-              transcriptCharacters: cachedExtract.transcriptCharacters,
-              transcriptWordCount: cachedExtract.transcriptWordCount,
-              transcriptLines: cachedExtract.transcriptLines,
-              transcriptHasTimestamps: Boolean(cachedExtract.transcriptTimedText),
-              truncated: cachedExtract.truncated,
+          await handlePanelChatHistoryRequest({
+            requestId: payload.requestId,
+            summary: payload.summary,
+            settings,
+            cachedExtract,
+            send: (msg) => {
+              void send(session, msg as BgToPanel);
             },
+            fetchImpl: fetch,
+            friendlyFetchError,
           });
-          const cacheContent = cachedExtract.transcriptTimedText ?? cachedExtract.text;
-
-          try {
-            const res = await fetch("http://127.0.0.1:8787/v1/agent/history", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${settings.token.trim()}`,
-                "content-type": "application/json",
-              },
-              body: JSON.stringify({
-                url: cachedExtract.url,
-                title: cachedExtract.title,
-                pageContent,
-                cacheContent,
-                model: settings.model,
-                length: settings.length,
-                language: settings.language,
-                automationEnabled: settings.automationEnabled,
-              }),
-            });
-            const rawText = await res.text();
-            let json: { ok?: boolean; messages?: Message[]; error?: string } | null = null;
-            if (rawText) {
-              try {
-                json = JSON.parse(rawText) as typeof json;
-              } catch {
-                json = null;
-              }
-            }
-            if (!res.ok || !json?.ok) {
-              const error = json?.error ?? (rawText.trim() || `${res.status} ${res.statusText}`);
-              throw new Error(error);
-            }
-            void send(session, {
-              type: "chat:history",
-              requestId: payload.requestId,
-              ok: true,
-              messages: Array.isArray(json?.messages) ? json?.messages : undefined,
-            });
-          } catch (err) {
-            const message = friendlyFetchError(err, "Chat history request failed");
-            void send(session, {
-              type: "chat:history",
-              requestId: payload.requestId,
-              ok: false,
-              error: message,
-            });
-          }
         })();
         break;
       case "panel:ping":
