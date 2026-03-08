@@ -17,6 +17,7 @@ import {
   type ExtractResponse,
 } from "./background/content-script-bridge";
 import { daemonHealth, daemonPing, friendlyFetchError } from "./background/daemon-client";
+import { ensureChatExtract, primeMediaHint, type CachedExtract } from "./background/extract-cache";
 import { createHoverController, type HoverToBg } from "./background/hover-controller";
 import { createPanelSessionStore, type PanelSession } from "./background/panel-session-store";
 import { resolvePanelState, type PanelUiState } from "./background/panel-state";
@@ -91,19 +92,6 @@ type BgToPanel =
     }
   | { type: "ui:cache"; requestId: string; ok: boolean; cache?: PanelCachePayload };
 
-type SlidesPayload = {
-  sourceUrl: string;
-  sourceId: string;
-  sourceKind: string;
-  ocrAvailable: boolean;
-  slides: Array<{
-    index: number;
-    timestamp: number;
-    ocrText?: string | null;
-    ocrConfidence?: number | null;
-  }>;
-};
-
 type PanelCachePayload = {
   tabId: number;
   url: string;
@@ -124,38 +112,7 @@ type BackgroundPanelSession = PanelSession<
   ReturnType<typeof createDaemonRecovery>,
   ReturnType<typeof createDaemonStatusTracker>
 >;
-const MIN_CHAT_CHARS = 100;
-const CHAT_FULL_TRANSCRIPT_MAX_CHARS = Number.MAX_SAFE_INTEGER;
-
 export default defineBackground(() => {
-  type CachedExtract = {
-    url: string;
-    title: string | null;
-    text: string;
-    source: "page" | "url";
-    truncated: boolean;
-    totalCharacters: number;
-    wordCount: number | null;
-    media: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } | null;
-    transcriptSource: string | null;
-    transcriptionProvider: string | null;
-    transcriptCharacters: number | null;
-    transcriptWordCount: number | null;
-    transcriptLines: number | null;
-    transcriptTimedText: string | null;
-    mediaDurationSeconds: number | null;
-    slides: SlidesPayload | null;
-    diagnostics?: {
-      strategy: string;
-      markdown?: { used?: boolean; provider?: string | null } | null;
-      firecrawl?: { used?: boolean } | null;
-      transcript?: {
-        provider?: string | null;
-        cacheStatus?: string | null;
-        attemptedProviders?: string[] | null;
-      } | null;
-    } | null;
-  };
   const panelSessionStore = createPanelSessionStore<
     CachedExtract,
     PanelCachePayload,
@@ -188,162 +145,6 @@ export default defineBackground(() => {
     buildDaemonRequestBody,
     resolveLogLevel,
   });
-
-  const ensureChatExtract = async (
-    session: BackgroundPanelSession,
-    tab: chrome.tabs.Tab,
-    settings: Awaited<ReturnType<typeof loadSettings>>,
-  ) => {
-    if (!tab.id || !tab.url) {
-      throw new Error("Cannot chat on this page");
-    }
-
-    const preferUrl = shouldPreferUrlMode(tab.url);
-    const cached = panelSessionStore.getCachedExtract(tab.id, tab.url);
-    if (cached && (!preferUrl || cached.source === "url")) return cached;
-
-    if (!preferUrl) {
-      const extractedAttempt = await extractFromTab(tab.id, CHAT_FULL_TRANSCRIPT_MAX_CHARS);
-      if (extractedAttempt.ok) {
-        const extracted = extractedAttempt.data;
-        const text = extracted.text.trim();
-        if (text.length >= MIN_CHAT_CHARS) {
-          const wordCount = text.length > 0 ? text.split(/\s+/).filter(Boolean).length : 0;
-          const next = {
-            url: extracted.url,
-            title: extracted.title ?? tab.title?.trim() ?? null,
-            text: extracted.text,
-            source: "page" as const,
-            truncated: extracted.truncated,
-            totalCharacters: extracted.text.length,
-            wordCount,
-            media: extracted.media ?? null,
-            transcriptSource: null,
-            transcriptionProvider: null,
-            transcriptCharacters: null,
-            transcriptWordCount: null,
-            transcriptLines: null,
-            transcriptTimedText: null,
-            mediaDurationSeconds: extracted.mediaDurationSeconds ?? null,
-            slides: null,
-            diagnostics: null,
-          };
-          panelSessionStore.setCachedExtract(tab.id, next);
-          return next;
-        }
-      } else if (
-        extractedAttempt.error.toLowerCase().includes("chrome blocked") ||
-        extractedAttempt.error.toLowerCase().includes("failed to inject")
-      ) {
-        throw new Error(extractedAttempt.error);
-      }
-    }
-
-    const wantsSlides = settings.slidesEnabled && shouldPreferUrlMode(tab.url);
-    const urlStatusLabel = wantsSlides
-      ? "Extracting video + thumbnails…"
-      : "Extracting video transcript…";
-    sendStatus(session, urlStatusLabel);
-    const extractTimeoutMs = wantsSlides ? 6 * 60_000 : 3 * 60_000;
-    const extractController = new AbortController();
-    const extractTimeout = setTimeout(() => {
-      extractController.abort();
-    }, extractTimeoutMs);
-    let res!: Response;
-    let json!: {
-      ok: boolean;
-      extracted?: {
-        content: string;
-        title: string | null;
-        url: string;
-        wordCount: number;
-        totalCharacters: number;
-        truncated: boolean;
-        transcriptSource: string | null;
-        transcriptCharacters?: number | null;
-        transcriptWordCount?: number | null;
-        transcriptLines?: number | null;
-        transcriptionProvider?: string | null;
-        transcriptTimedText?: string | null;
-        mediaDurationSeconds?: number | null;
-        diagnostics?: {
-          strategy: string;
-          markdown?: { used?: boolean; provider?: string | null } | null;
-          firecrawl?: { used?: boolean } | null;
-          transcript?: {
-            provider?: string | null;
-            cacheStatus?: string | null;
-            attemptedProviders?: string[] | null;
-          } | null;
-        };
-      };
-      slides?: SlidesPayload | null;
-      error?: string;
-    };
-    try {
-      res = await fetch("http://127.0.0.1:8787/v1/summarize", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${settings.token.trim()}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          url: tab.url,
-          mode: "url",
-          extractOnly: true,
-          timestamps: true,
-          ...(wantsSlides ? { slides: true } : {}),
-          maxCharacters: null,
-        }),
-        signal: extractController.signal,
-      });
-      json = (await res.json()) as typeof json;
-    } catch (err) {
-      if (extractController.signal.aborted) {
-        throw new Error("Video extraction timed out. The daemon may be stuck.");
-      }
-      throw err;
-    } finally {
-      clearTimeout(extractTimeout);
-    }
-    if (!res.ok || !json.ok || !json.extracted) {
-      throw new Error(json.error || `${res.status} ${res.statusText}`);
-    }
-
-    const next = {
-      url: json.extracted.url,
-      title: json.extracted.title,
-      text: json.extracted.content,
-      source: "url" as const,
-      truncated: json.extracted.truncated,
-      totalCharacters: json.extracted.totalCharacters,
-      wordCount: json.extracted.wordCount,
-      media: null,
-      transcriptSource: json.extracted.transcriptSource ?? null,
-      transcriptionProvider: json.extracted.transcriptionProvider ?? null,
-      transcriptCharacters: json.extracted.transcriptCharacters ?? null,
-      transcriptWordCount: json.extracted.transcriptWordCount ?? null,
-      transcriptLines: json.extracted.transcriptLines ?? null,
-      transcriptTimedText: json.extracted.transcriptTimedText ?? null,
-      mediaDurationSeconds: json.extracted.mediaDurationSeconds ?? null,
-      slides: json.slides ?? null,
-      diagnostics: json.extracted.diagnostics ?? null,
-    };
-    if (!next.mediaDurationSeconds) {
-      const fallback = await extractFromTab(tab.id, CHAT_FULL_TRANSCRIPT_MAX_CHARS);
-      if (fallback.ok) {
-        const duration = fallback.data.mediaDurationSeconds;
-        if (typeof duration === "number" && Number.isFinite(duration) && duration > 0) {
-          next.mediaDurationSeconds = duration;
-        }
-        if (!next.media) {
-          next.media = fallback.data.media ?? null;
-        }
-      }
-    }
-    panelSessionStore.setCachedExtract(tab.id, next);
-    return next;
-  };
 
   const send = (session: BackgroundPanelSession, msg: BgToPanel) => {
     if (!panelSessionStore.isPanelOpen(session)) return;
@@ -385,59 +186,17 @@ export default defineBackground(() => {
     }
 
     if (next.shouldPrimeMedia) {
-      void primeMediaHint(session, next.shouldPrimeMedia);
+      void primeMediaHint({
+        session,
+        ...next.shouldPrimeMedia,
+        panelSessionStore,
+        urlsMatch,
+        extractFromTab,
+        emitState: (currentSession, status) => {
+          void emitState(currentSession as BackgroundPanelSession, status);
+        },
+      });
     }
-  };
-
-  const primeMediaHint = async (
-    session: BackgroundPanelSession,
-    {
-      tabId,
-      url,
-      title,
-    }: {
-      tabId: number;
-      url: string;
-      title: string | null;
-    },
-  ) => {
-    const lastProbeUrl = panelSessionStore.getLastMediaProbe(tabId);
-    if (lastProbeUrl && urlsMatch(lastProbeUrl, url)) return;
-    const existing = panelSessionStore.getCachedExtract(tabId, url);
-    if (existing?.media) {
-      panelSessionStore.rememberMediaProbe(tabId, url);
-      return;
-    }
-
-    panelSessionStore.rememberMediaProbe(tabId, url);
-    const attempt = await extractFromTab(tabId, 1200);
-    if (!attempt.ok) return;
-    const extracted = attempt.data;
-    if (!extracted.media) return;
-
-    const wordCount =
-      extracted.text.length > 0 ? extracted.text.split(/\s+/).filter(Boolean).length : 0;
-    panelSessionStore.setCachedExtract(tabId, {
-      url: extracted.url,
-      title: extracted.title ?? title,
-      text: extracted.text,
-      source: "page",
-      truncated: extracted.truncated,
-      totalCharacters: extracted.text.length,
-      wordCount,
-      media: extracted.media,
-      transcriptSource: null,
-      transcriptionProvider: null,
-      transcriptCharacters: null,
-      transcriptWordCount: null,
-      transcriptLines: null,
-      transcriptTimedText: null,
-      mediaDurationSeconds: extracted.mediaDurationSeconds ?? null,
-      slides: null,
-      diagnostics: null,
-    });
-
-    void emitState(session, "");
   };
 
   const summarizeActiveTab = async (
@@ -934,7 +693,15 @@ export default defineBackground(() => {
 
           let cachedExtract: CachedExtract;
           try {
-            cachedExtract = await ensureChatExtract(session, tab, settings);
+            cachedExtract = await ensureChatExtract({
+              session,
+              tab,
+              settings,
+              panelSessionStore,
+              sendStatus: (status) => sendStatus(session, status),
+              extractFromTab,
+              fetchImpl: fetch,
+            });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             void send(session, { type: "run:error", message });
@@ -1103,7 +870,15 @@ export default defineBackground(() => {
 
           let cachedExtract: CachedExtract;
           try {
-            cachedExtract = await ensureChatExtract(session, tab, settings);
+            cachedExtract = await ensureChatExtract({
+              session,
+              tab,
+              settings,
+              panelSessionStore,
+              sendStatus: () => {},
+              extractFromTab,
+              fetchImpl: fetch,
+            });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             void send(session, {
