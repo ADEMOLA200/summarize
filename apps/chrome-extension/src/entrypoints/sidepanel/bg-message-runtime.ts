@@ -1,53 +1,23 @@
+import type { BgToPanel, RunStart, UiState } from "../../lib/panel-contracts";
 import {
   normalizePanelUrl,
   shouldAcceptRunForCurrentPage,
   shouldAcceptSlidesForCurrentPage,
 } from "./session-policy";
-import type { UiState, RunStart } from "./types";
-
-type BgMessage =
-  | { type: "ui:state"; state: UiState }
-  | { type: "ui:status"; status: string }
-  | { type: "run:start"; run: RunStart }
-  | { type: "run:error"; message: string }
-  | { type: "slides:run"; ok: boolean; runId?: string; url?: string; error?: string }
-  | {
-      type: "chat:history";
-      requestId: string;
-      ok: boolean;
-      messages?: unknown[];
-      error?: string;
-    }
-  | { type: "agent:chunk"; requestId: string; text: string }
-  | {
-      type: "agent:response";
-      requestId: string;
-      ok: boolean;
-      assistant?: unknown;
-      error?: string;
-    }
-  | {
-      type: "slides:context";
-      requestId: string;
-      ok: boolean;
-      transcriptTimedText?: string | null;
-      error?: string;
-    }
-  | { type: "ui:cache"; requestId: string; ok: boolean; cache?: unknown };
 
 export function handleSidepanelBgMessage(options: {
-  msg: BgMessage;
+  msg: BgToPanel;
   applyUiState: (state: UiState) => void;
   setStatus: (text: string) => void;
   isStreaming: () => boolean;
   handleRunError: (message: string) => void;
-  handleSlidesRun: (msg: Extract<BgMessage, { type: "slides:run" }>) => void;
-  handleSlidesContext: (msg: Extract<BgMessage, { type: "slides:context" }>) => void;
-  handleUiCache: (msg: Extract<BgMessage, { type: "ui:cache" }>) => void;
+  handleSlidesRun: (msg: Extract<BgToPanel, { type: "slides:run" }>) => void;
+  handleSlidesContext: (msg: Extract<BgToPanel, { type: "slides:context" }>) => void;
+  handleUiCache: (msg: Extract<BgToPanel, { type: "ui:cache" }>) => void;
   handleRunStart: (run: RunStart) => void;
-  handleChatHistory: (msg: Extract<BgMessage, { type: "chat:history" }>) => void;
-  handleAgentChunk: (msg: Extract<BgMessage, { type: "agent:chunk" }>) => void;
-  handleAgentResponse: (msg: Extract<BgMessage, { type: "agent:response" }>) => void;
+  handleChatHistory: (msg: Extract<BgToPanel, { type: "chat:history" }>) => void;
+  handleAgentChunk: (msg: Extract<BgToPanel, { type: "agent:chunk" }>) => void;
+  handleAgentResponse: (msg: Extract<BgToPanel, { type: "agent:response" }>) => void;
 }) {
   const { msg } = options;
   switch (msg.type) {
@@ -84,9 +54,9 @@ export function handleSidepanelBgMessage(options: {
   }
 }
 
-type SlidesContextMessage = Extract<BgMessage, { type: "slides:context" }>;
-type SlidesRunMessage = Extract<BgMessage, { type: "slides:run" }>;
-type UiCacheMessage = Extract<BgMessage, { type: "ui:cache" }>;
+type SlidesContextMessage = Extract<BgToPanel, { type: "slides:context" }>;
+type SlidesRunMessage = Extract<BgToPanel, { type: "slides:run" }>;
+type UiCacheMessage = Extract<BgToPanel, { type: "ui:cache" }>;
 
 export function createSidepanelBgMessageRuntime(options: {
   panelState: {

@@ -1,4 +1,5 @@
 import { shouldPreferUrlMode } from "@steipete/summarize-core/content/url";
+import type { RunStart } from "../../lib/panel-contracts";
 import type { Settings } from "../../lib/settings";
 import { isYouTubeWatchUrl } from "../../lib/youtube-url";
 import type { ExtractResponse } from "./content-script-bridge";
@@ -24,14 +25,6 @@ type BackgroundSummarizeSession = {
 type StoreLike = {
   isPanelOpen: (session: BackgroundSummarizeSession) => boolean;
   setCachedExtract: (tabId: number, value: CachedExtract) => void;
-};
-
-type RunStart = {
-  id: string;
-  url: string;
-  title: string | null;
-  model: string;
-  reason: string;
 };
 
 type SendFn = (

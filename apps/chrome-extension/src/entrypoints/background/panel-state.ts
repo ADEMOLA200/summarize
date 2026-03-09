@@ -1,26 +1,6 @@
-export type PanelUiState = {
-  panelOpen: boolean;
-  daemon: { ok: boolean; authed: boolean; error?: string };
-  tab: { id: number | null; url: string | null; title: string | null };
-  media: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } | null;
-  stats: { pageWords: number | null; videoDurationSeconds: number | null };
-  settings: {
-    autoSummarize: boolean;
-    hoverSummaries: boolean;
-    chatEnabled: boolean;
-    automationEnabled: boolean;
-    slidesEnabled: boolean;
-    slidesParallel: boolean;
-    slidesOcrEnabled: boolean;
-    slidesLayout: "strip" | "gallery";
-    fontSize: number;
-    lineHeight: number;
-    model: string;
-    length: string;
-    tokenPresent: boolean;
-  };
-  status: string;
-};
+import type { UiState as PanelUiState } from "../../lib/panel-contracts";
+
+export type { PanelUiState };
 
 type CachedExtractLike = {
   media: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } | null;

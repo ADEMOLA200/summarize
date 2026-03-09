@@ -1,30 +1,7 @@
 import type { SseSlidesData } from "../../../../../src/shared/sse-events.js";
+import type { BgToPanel, RunStart, UiState } from "../../lib/panel-contracts";
 import type { SlidesLayout } from "../../lib/settings";
-import type { PanelPhase, RunStart, UiState } from "./types";
-
-type BgToPanelMessage =
-  | { type: "ui:state"; state: UiState }
-  | { type: "ui:status"; status: string }
-  | { type: "run:start"; run: RunStart }
-  | { type: "run:error"; message: string }
-  | { type: "slides:run"; ok: boolean; runId?: string; url?: string; error?: string }
-  | { type: "chat:history"; requestId: string; ok: boolean; messages?: unknown[]; error?: string }
-  | { type: "agent:chunk"; requestId: string; text: string }
-  | {
-      type: "agent:response";
-      requestId: string;
-      ok: boolean;
-      assistant?: unknown;
-      error?: string;
-    }
-  | {
-      type: "slides:context";
-      requestId: string;
-      ok: boolean;
-      transcriptTimedText?: string | null;
-      error?: string;
-    }
-  | { type: "ui:cache"; requestId: string; ok: boolean; cache?: unknown };
+import type { PanelPhase } from "./types";
 
 type SummarizeMode = { mode: "page" | "video"; slides: boolean };
 
@@ -48,7 +25,7 @@ type SidepanelTestHooks = {
   getSlidesState?: () => { slidesCount: number; layout: SlidesLayout; hasSlides: boolean };
   renderSlidesNow?: () => void;
   applyUiState?: (state: UiState) => void;
-  applyBgMessage?: (message: BgToPanelMessage) => void;
+  applyBgMessage?: (message: BgToPanel) => void;
   applySummarySnapshot?: (payload: { run: RunStart; markdown: string }) => void;
   applySummaryMarkdown?: (markdown: string) => void;
   forceRenderSlides?: () => void;
@@ -77,7 +54,7 @@ export function registerSidepanelTestHooks(options: {
   getSlidesState: () => { slidesCount: number; layout: SlidesLayout; hasSlides: boolean };
   renderSlidesNow: () => void;
   applyUiState: (state: UiState) => void;
-  applyBgMessage: (message: BgToPanelMessage) => void;
+  applyBgMessage: (message: BgToPanel) => void;
   applySummarySnapshot: (payload: { run: RunStart; markdown: string }) => void;
   applySummaryMarkdown: (markdown: string) => void;
   forceRenderSlides: () => void;

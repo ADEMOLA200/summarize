@@ -1,37 +1,7 @@
 import type { Message } from "@mariozechner/pi-ai";
 import type { SseSlidesData } from "../../../../../src/shared/sse-events.js";
-
-export type UiState = {
-  panelOpen: boolean;
-  daemon: { ok: boolean; authed: boolean; error?: string };
-  tab: { id: number | null; url: string | null; title: string | null };
-  media: { hasVideo: boolean; hasAudio: boolean; hasCaptions: boolean } | null;
-  stats: { pageWords: number | null; videoDurationSeconds: number | null };
-  settings: {
-    autoSummarize: boolean;
-    hoverSummaries: boolean;
-    chatEnabled: boolean;
-    automationEnabled: boolean;
-    slidesEnabled: boolean;
-    slidesParallel: boolean;
-    slidesOcrEnabled: boolean;
-    slidesLayout: "strip" | "gallery";
-    fontSize: number;
-    lineHeight: number;
-    model: string;
-    length: string;
-    tokenPresent: boolean;
-  };
-  status: string;
-};
-
-export type RunStart = {
-  id: string;
-  url: string;
-  title: string | null;
-  model: string;
-  reason: string;
-};
+import type { RunStart, UiState } from "../../lib/panel-contracts";
+export type { RunStart, UiState } from "../../lib/panel-contracts";
 
 export type PanelPhase = "idle" | "setup" | "connecting" | "streaming" | "error";
 

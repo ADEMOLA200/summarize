@@ -1,26 +1,6 @@
-import type { SseSlidesData } from "../../../../../src/shared/sse-events.js";
+import type { PanelCachePayload } from "../../lib/panel-contracts";
 
-type PanelCacheMeta = {
-  inputSummary: string | null;
-  model: string | null;
-  modelLabel: string | null;
-};
-
-export type PanelCachePayload = {
-  tabId: number;
-  url: string;
-  title: string | null;
-  runId: string | null;
-  slidesRunId: string | null;
-  summaryMarkdown: string | null;
-  summaryFromCache: boolean | null;
-  slidesSummaryMarkdown: string | null;
-  slidesSummaryComplete: boolean | null;
-  slidesSummaryModel: string | null;
-  lastMeta: PanelCacheMeta;
-  slides: SseSlidesData | null;
-  transcriptTimedText: string | null;
-};
+export type { PanelCachePayload } from "../../lib/panel-contracts";
 
 export type PanelCacheResponse = {
   requestId: string;

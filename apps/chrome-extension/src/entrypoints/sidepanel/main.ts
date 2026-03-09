@@ -6,6 +6,7 @@ import type { SseSlidesData } from "../../../../../src/shared/sse-events.js";
 import { listSkills } from "../../automation/skills-store";
 import { executeToolCall, getAutomationToolNames } from "../../automation/tools";
 import { buildIdleSubtitle } from "../../lib/header";
+import type { BgToPanel, PanelToBg } from "../../lib/panel-contracts";
 import {
   defaultSettings,
   loadSettings,
@@ -29,6 +30,7 @@ import { createChatQueueRuntime } from "./chat-queue-runtime";
 import { createChatSession } from "./chat-session";
 import { type ChatHistoryLimits } from "./chat-state";
 import { createChatStreamRuntime } from "./chat-stream-runtime";
+import { createSidepanelDom } from "./dom";
 import { createDrawerControls } from "./drawer-controls";
 import { createErrorController } from "./error-controller";
 import { createHeaderController } from "./header-controller";
@@ -67,111 +69,67 @@ import type { ChatMessage, PanelPhase, PanelState, RunStart, UiState } from "./t
 import { createTypographyController } from "./typography-controller";
 import { createUiStateRuntime } from "./ui-state-runtime";
 
-type PanelToBg =
-  | { type: "panel:ready" }
-  | { type: "panel:summarize"; refresh?: boolean; inputMode?: "page" | "video" }
-  | {
-      type: "panel:agent";
-      requestId: string;
-      messages: Message[];
-      tools: string[];
-      summary?: string | null;
-    }
-  | {
-      type: "panel:chat-history";
-      requestId: string;
-      summary?: string | null;
-    }
-  | { type: "panel:seek"; seconds: number }
-  | { type: "panel:ping" }
-  | { type: "panel:closed" }
-  | { type: "panel:rememberUrl"; url: string }
-  | { type: "panel:setAuto"; value: boolean }
-  | { type: "panel:setLength"; value: string }
-  | { type: "panel:slides-context"; requestId: string; url?: string }
-  | { type: "panel:cache"; cache: PanelCachePayload }
-  | { type: "panel:get-cache"; requestId: string; tabId: number; url: string }
-  | { type: "panel:openOptions" };
-
-type BgToPanel =
-  | { type: "ui:state"; state: UiState }
-  | { type: "ui:status"; status: string }
-  | { type: "run:start"; run: RunStart }
-  | { type: "run:error"; message: string }
-  | { type: "slides:run"; ok: boolean; runId?: string; url?: string; error?: string }
-  | { type: "chat:history"; requestId: string; ok: boolean; messages?: Message[]; error?: string }
-  | { type: "agent:chunk"; requestId: string; text: string }
-  | {
-      type: "agent:response";
-      requestId: string;
-      ok: boolean;
-      assistant?: AssistantMessage;
-      error?: string;
-    }
-  | {
-      type: "slides:context";
-      requestId: string;
-      ok: boolean;
-      transcriptTimedText?: string | null;
-      error?: string;
-    }
-  | { type: "ui:cache"; requestId: string; ok: boolean; cache?: PanelCachePayload };
-
 let currentRunTabId: number | null = null;
-
-function byId<T extends HTMLElement>(id: string): T {
-  const el = document.getElementById(id);
-  if (!el) throw new Error(`Missing #${id}`);
-  return el as T;
-}
-
-const subtitleEl = byId<HTMLDivElement>("subtitle");
-const titleEl = byId<HTMLDivElement>("title");
-const headerEl = document.querySelector("header") as HTMLElement;
-if (!headerEl) throw new Error("Missing <header>");
-const progressFillEl = byId<HTMLDivElement>("progressFill");
-const drawerEl = byId<HTMLElement>("drawer");
-const setupEl = byId<HTMLDivElement>("setup");
-const errorEl = byId<HTMLDivElement>("error");
-const errorMessageEl = byId<HTMLParagraphElement>("errorMessage");
-const errorRetryBtn = byId<HTMLButtonElement>("errorRetry");
-const errorLogsBtn = byId<HTMLButtonElement>("errorLogs");
-const slideNoticeEl = byId<HTMLDivElement>("slideNotice");
-const slideNoticeMessageEl = byId<HTMLSpanElement>("slideNoticeMessage");
-const slideNoticeRetryBtn = byId<HTMLButtonElement>("slideNoticeRetry");
-const renderEl = byId<HTMLElement>("render");
-const renderSlidesHostEl = document.createElement("div");
-renderSlidesHostEl.className = "render__slidesHost";
-const renderMarkdownHostEl = document.createElement("div");
-renderMarkdownHostEl.className = "render__markdownHost";
-renderEl.append(renderSlidesHostEl, renderMarkdownHostEl);
-const mainEl = document.querySelector("main") as HTMLElement;
-if (!mainEl) throw new Error("Missing <main>");
-const metricsEl = byId<HTMLDivElement>("metrics");
-const metricsHomeEl = byId<HTMLDivElement>("metricsHome");
-const chatMetricsSlotEl = byId<HTMLDivElement>("chatMetricsSlot");
-const chatDockEl = byId<HTMLDivElement>("chatDock");
-
-const summarizeControlRoot = byId<HTMLElement>("summarizeControlRoot");
-const drawerToggleBtn = byId<HTMLButtonElement>("drawerToggle");
-const refreshBtn = byId<HTMLButtonElement>("refresh");
-const clearBtn = byId<HTMLButtonElement>("clear");
-const advancedBtn = byId<HTMLButtonElement>("advanced");
-const autoToggleRoot = byId<HTMLDivElement>("autoToggle");
-const lengthRoot = byId<HTMLDivElement>("lengthRoot");
-const pickersRoot = byId<HTMLDivElement>("pickersRoot");
-const sizeSmBtn = byId<HTMLButtonElement>("sizeSm");
-const sizeLgBtn = byId<HTMLButtonElement>("sizeLg");
-const lineTightBtn = byId<HTMLButtonElement>("lineTight");
-const lineLooseBtn = byId<HTMLButtonElement>("lineLoose");
-const advancedSettingsEl = byId<HTMLDetailsElement>("advancedSettings");
-const advancedSettingsSummaryEl = advancedSettingsEl.querySelector("summary");
-if (!advancedSettingsSummaryEl) throw new Error("Missing advanced settings summary");
-const advancedSettingsBodyEl = advancedSettingsEl.querySelector<HTMLElement>(".drawerAdvancedBody");
-if (!advancedSettingsBodyEl) throw new Error("Missing advanced settings body");
-const modelPresetEl = byId<HTMLSelectElement>("modelPreset");
-const modelCustomEl = byId<HTMLInputElement>("modelCustom");
-const modelRefreshBtn = byId<HTMLButtonElement>("modelRefresh");
+const {
+  advancedBtn,
+  advancedSettingsBodyEl,
+  advancedSettingsEl,
+  advancedSettingsSummaryEl,
+  autoToggleRoot,
+  automationNoticeActionBtn,
+  automationNoticeEl,
+  automationNoticeMessageEl,
+  automationNoticeTitleEl,
+  chatContainerEl,
+  chatContextStatusEl,
+  chatDockEl,
+  chatInputEl,
+  chatJumpBtn,
+  chatMessagesEl,
+  chatMetricsSlotEl,
+  chatQueueEl,
+  chatSendBtn,
+  clearBtn,
+  drawerEl,
+  drawerToggleBtn,
+  errorEl,
+  errorLogsBtn,
+  errorMessageEl,
+  errorRetryBtn,
+  headerEl,
+  inlineErrorCloseBtn,
+  inlineErrorEl,
+  inlineErrorLogsBtn,
+  inlineErrorMessageEl,
+  inlineErrorRetryBtn,
+  lengthRoot,
+  lineLooseBtn,
+  lineTightBtn,
+  mainEl,
+  metricsEl,
+  metricsHomeEl,
+  modelCustomEl,
+  modelPresetEl,
+  modelRefreshBtn,
+  modelRowEl,
+  modelStatusEl,
+  pickersRoot,
+  progressFillEl,
+  refreshBtn,
+  renderEl,
+  renderMarkdownHostEl,
+  renderSlidesHostEl,
+  setupEl,
+  sizeLgBtn,
+  sizeSmBtn,
+  slideNoticeEl,
+  slideNoticeMessageEl,
+  slideNoticeRetryBtn,
+  slidesLayoutEl,
+  subtitleEl,
+  summarizeControlRoot,
+  titleEl,
+} = createSidepanelDom();
 
 const metricsController = createMetricsController({
   metricsEl,
@@ -187,26 +145,6 @@ const typographyController = createTypographyController({
   defaultFontSize: defaultSettings.fontSize,
   defaultLineHeight: defaultSettings.lineHeight,
 });
-const modelStatusEl = byId<HTMLDivElement>("modelStatus");
-const modelRowEl = byId<HTMLDivElement>("modelRow");
-const slidesLayoutEl = byId<HTMLSelectElement>("slidesLayout");
-
-const chatContainerEl = byId<HTMLElement>("chatContainer");
-const chatMessagesEl = byId<HTMLDivElement>("chatMessages");
-const chatInputEl = byId<HTMLTextAreaElement>("chatInput");
-const chatSendBtn = byId<HTMLButtonElement>("chatSend");
-const chatContextStatusEl = byId<HTMLDivElement>("chatContextStatus");
-const automationNoticeEl = byId<HTMLDivElement>("automationNotice");
-const automationNoticeTitleEl = byId<HTMLDivElement>("automationNoticeTitle");
-const automationNoticeMessageEl = byId<HTMLDivElement>("automationNoticeMessage");
-const automationNoticeActionBtn = byId<HTMLButtonElement>("automationNoticeAction");
-const chatJumpBtn = byId<HTMLButtonElement>("chatJump");
-const chatQueueEl = byId<HTMLDivElement>("chatQueue");
-const inlineErrorEl = byId<HTMLDivElement>("inlineError");
-const inlineErrorMessageEl = byId<HTMLDivElement>("inlineErrorMessage");
-const inlineErrorRetryBtn = byId<HTMLButtonElement>("inlineErrorRetry");
-const inlineErrorLogsBtn = byId<HTMLButtonElement>("inlineErrorLogs");
-const inlineErrorCloseBtn = byId<HTMLButtonElement>("inlineErrorClose");
 
 const md = new MarkdownIt({
   html: false,
@@ -254,6 +192,16 @@ const panelPortRuntime = createPanelPortRuntime<BgToPanel>({
     handleBgMessage(msg);
   },
 });
+
+async function send(message: PanelToBg) {
+  if (message.type === "panel:summarize") {
+    lastAction = "summarize";
+  } else if (message.type === "panel:agent") {
+    lastAction = "chat";
+  }
+  await panelPortRuntime.send(message);
+}
+
 let autoValue = false;
 let chatEnabledValue = defaultSettings.chatEnabled;
 let automationEnabledValue = defaultSettings.automationEnabled;
@@ -1022,27 +970,29 @@ window.addEventListener("unhandledrejection", (event) => {
   setPhase("error", { error: message });
 });
 
+let slidesViewRuntime: ReturnType<typeof createSlidesViewRuntime> | null = null;
+
 function renderEmptySummaryState() {
-  slidesViewRuntime.renderEmptySummaryState();
+  slidesViewRuntime?.renderEmptySummaryState();
 }
 
 function renderMarkdownDisplay() {
-  slidesViewRuntime.renderMarkdownDisplay();
+  slidesViewRuntime?.renderMarkdownDisplay();
 }
 
 function renderMarkdown(markdown: string) {
-  slidesViewRuntime.renderMarkdown(markdown);
+  slidesViewRuntime?.renderMarkdown(markdown);
 }
 
 function setSlidesBusy(next: boolean) {
-  slidesViewRuntime.setSlidesBusy(next);
+  slidesViewRuntime?.setSlidesBusy(next);
 }
 
 function updateSlideSummaryFromMarkdown(
   markdown: string,
   opts?: { preserveIfEmpty?: boolean; source?: "summary" | "slides" },
 ) {
-  slidesViewRuntime.updateSlideSummaryFromMarkdown(markdown, opts);
+  slidesViewRuntime?.updateSlideSummaryFromMarkdown(markdown, opts);
 }
 
 function seekToSlideTimestamp(seconds: number | null | undefined) {
@@ -1050,14 +1000,14 @@ function seekToSlideTimestamp(seconds: number | null | undefined) {
   void send({ type: "panel:seek", seconds: Math.floor(seconds) });
 }
 function updateSlidesTextState() {
-  slidesViewRuntime.updateSlidesTextState();
+  slidesViewRuntime?.updateSlidesTextState();
 }
 
 function rebuildSlideDescriptions() {
-  slidesViewRuntime.rebuildSlideDescriptions();
+  slidesViewRuntime?.rebuildSlideDescriptions();
 }
 
-const slidesViewRuntime = createSlidesViewRuntime({
+slidesViewRuntime = createSlidesViewRuntime({
   renderMarkdownHostEl,
   renderSlidesHostEl,
   chatMessagesEl,
@@ -1804,7 +1754,7 @@ const interactionRuntime = createSidepanelInteractionRuntime({
   },
   readCurrentModelValue,
 });
-const { send, sendSummarize, sendChatMessage, bumpFontSize, bumpLineHeight, persistCurrentModel } =
+const { sendSummarize, sendChatMessage, bumpFontSize, bumpLineHeight, persistCurrentModel } =
   interactionRuntime;
 
 function seedPlannedSlidesForRun(run: RunStart) {

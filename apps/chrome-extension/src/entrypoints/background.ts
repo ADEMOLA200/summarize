@@ -1,9 +1,9 @@
 import type { AssistantMessage, Message } from "@mariozechner/pi-ai";
 import { defineBackground } from "wxt/utils/define-background";
-import type { SseSlidesData } from "../../../../src/shared/sse-events.js";
 import { buildDaemonRequestBody, buildSummarizeRequestBody } from "../lib/daemon-payload";
 import { createDaemonRecovery, isDaemonUnreachableError } from "../lib/daemon-recovery";
 import { createDaemonStatusTracker } from "../lib/daemon-status";
+import type { BgToPanel, PanelCachePayload, PanelToBg } from "../lib/panel-contracts";
 import { loadSettings, patchSettings } from "../lib/settings";
 import { canSummarizeUrl, extractFromTab, seekInTab } from "./background/content-script-bridge";
 import { daemonHealth, daemonPing, friendlyFetchError } from "./background/daemon-client";
@@ -33,80 +33,6 @@ import {
   type ArtifactsRequest,
   type NativeInputRequest,
 } from "./background/runtime-actions";
-
-type PanelToBg =
-  | { type: "panel:ready" }
-  | { type: "panel:summarize"; refresh?: boolean; inputMode?: "page" | "video" }
-  | {
-      type: "panel:agent";
-      requestId: string;
-      messages: Message[];
-      tools: string[];
-      summary?: string | null;
-    }
-  | {
-      type: "panel:chat-history";
-      requestId: string;
-      summary?: string | null;
-    }
-  | { type: "panel:seek"; seconds: number }
-  | { type: "panel:ping" }
-  | { type: "panel:closed" }
-  | { type: "panel:rememberUrl"; url: string }
-  | { type: "panel:setAuto"; value: boolean }
-  | { type: "panel:setLength"; value: string }
-  | { type: "panel:slides-context"; requestId: string; url?: string }
-  | { type: "panel:cache"; cache: PanelCachePayload }
-  | { type: "panel:get-cache"; requestId: string; tabId: number; url: string }
-  | { type: "panel:openOptions" };
-
-type RunStart = {
-  id: string;
-  url: string;
-  title: string | null;
-  model: string;
-  reason: string;
-};
-
-type BgToPanel =
-  | { type: "ui:state"; state: PanelUiState }
-  | { type: "ui:status"; status: string }
-  | { type: "run:start"; run: RunStart }
-  | { type: "run:error"; message: string }
-  | { type: "slides:run"; ok: boolean; runId?: string; url?: string; error?: string }
-  | { type: "agent:chunk"; requestId: string; text: string }
-  | { type: "chat:history"; requestId: string; ok: boolean; messages?: Message[]; error?: string }
-  | {
-      type: "agent:response";
-      requestId: string;
-      ok: boolean;
-      assistant?: AssistantMessage;
-      error?: string;
-    }
-  | {
-      type: "slides:context";
-      requestId: string;
-      ok: boolean;
-      transcriptTimedText?: string | null;
-      error?: string;
-    }
-  | { type: "ui:cache"; requestId: string; ok: boolean; cache?: PanelCachePayload };
-
-type PanelCachePayload = {
-  tabId: number;
-  url: string;
-  title: string | null;
-  runId: string | null;
-  slidesRunId: string | null;
-  summaryMarkdown: string | null;
-  summaryFromCache: boolean | null;
-  slidesSummaryMarkdown: string | null;
-  slidesSummaryComplete: boolean | null;
-  slidesSummaryModel: string | null;
-  lastMeta: { inputSummary: string | null; model: string | null; modelLabel: string | null };
-  slides: SseSlidesData | null;
-  transcriptTimedText: string | null;
-};
 
 type BackgroundPanelSession = PanelSession<
   ReturnType<typeof createDaemonRecovery>,
