@@ -164,8 +164,11 @@ test("sidepanel reconnects cached slide runs after tab restore", async ({
     await expect.poll(async () => (await getPanelSlideDescriptions(page)).length).toBe(0);
 
     await sendBgMessage(harness, { type: "ui:state", state: tabAState });
-    await expect.poll(async () => slidesEventsRequests).toBeGreaterThan(1);
     await expect.poll(async () => await getPanelSummaryMarkdown(page)).toContain("Summary A");
+    await expect.poll(async () => (await getPanelSlidesTimeline(page)).length).toBe(1);
+    await expect
+      .poll(async () => (await getPanelSlideDescriptions(page)).map(([, text]) => text))
+      .toEqual(["Cached slide one."]);
 
     assertNoErrors(harness);
   } finally {
