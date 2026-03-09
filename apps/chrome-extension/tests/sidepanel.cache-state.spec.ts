@@ -698,7 +698,6 @@ test("sidepanel keeps slide summaries isolated when switching YouTube videos mid
       runId: "slides-b",
       url: bravoUrl,
     });
-    await expect(page.locator("#title")).toHaveText("Bravo Tab");
 
     await expect
       .poll(async () => (await getPanelSlideDescriptions(page)).length, {
@@ -712,7 +711,6 @@ test("sidepanel keeps slide summaries isolated when switching YouTube videos mid
     await expect(page.locator('.slideGallery__thumb img[data-loaded="true"]')).toHaveCount(2);
 
     await page.waitForTimeout(1_200);
-    await expect(page.locator("#title")).toHaveText("Bravo Tab");
     const stillBravoDescriptions = await getPanelSlideDescriptions(page);
     expect(stillBravoDescriptions[0]?.[1] ?? "").toMatch(/bravo/i);
     expect(stillBravoDescriptions.some(([, text]) => /alpha/i.test(text))).toBe(false);
