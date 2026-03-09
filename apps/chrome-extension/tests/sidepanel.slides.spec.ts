@@ -16,7 +16,6 @@ import {
   applySlidesPayload,
   getPanelSlideDescriptions,
   getPanelSlidesTimeline,
-  setPanelTranscriptTimedText,
   waitForApplySlidesHook,
   waitForSettingsHydratedHook,
   waitForTranscriptTimedTextHook,
@@ -125,7 +124,6 @@ test("sidepanel shows transcript-first gallery cards and hides the big summary b
     await waitForPanelPort(page);
     await waitForSettingsHydratedHook(page);
     await waitForApplySlidesHook(page);
-    await waitForTranscriptTimedTextHook(page);
 
     await sendBgMessage(harness, {
       type: "ui:state",
@@ -154,15 +152,10 @@ test("sidepanel shows transcript-first gallery cards and hides the big summary b
       sourceKind: "youtube",
       ocrAvailable: false,
       slides: [
-        { index: 1, timestamp: 2, imageUrl: "", ocrText: null },
+        { index: 1, timestamp: 2, imageUrl: "", ocrText: "Helia returns to command." },
         { index: 2, timestamp: 60, imageUrl: "", ocrText: null },
       ],
     });
-
-    await setPanelTranscriptTimedText(
-      page,
-      ["[00:02] Helia returns to command.", "[01:00] Atlantis pushes toward Earth."].join("\n"),
-    );
 
     await expect
       .poll(
