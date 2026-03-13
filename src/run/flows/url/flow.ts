@@ -1,29 +1,11 @@
-import { NEGATIVE_TTL_MS } from "@steipete/summarize-core/content";
-import * as urlUtils from "@steipete/summarize-core/content/url";
-import { buildExtractCacheKey, buildSlidesCacheKey } from "../../../cache.js";
-import { loadRemoteAsset } from "../../../content/asset.js";
-import {
-  createLinkPreviewClient,
-  type ExtractedLinkContent,
-  type FetchLinkContentOptions,
-} from "../../../content/index.js";
-import { createFirecrawlScraper } from "../../../firecrawl.js";
-import {
-  extractSlidesForSource,
-  resolveSlideSource,
-  type SlideExtractionResult,
-  validateSlidesCache,
-} from "../../../slides/index.js";
+import { type SlideExtractionResult } from "../../../slides/index.js";
 import {
   createThemeRenderer,
   resolveThemeNameFromSources,
   resolveTrueColor,
 } from "../../../tty/theme.js";
-import { assertAssetMediaTypeSupported } from "../../attachments.js";
-import { readTweetWithPreferredClient } from "../../bird.js";
 import { UVX_TIP } from "../../constants.js";
-import { resolveTwitterCookies } from "../../cookies/twitter.js";
-import { hasBirdCli, hasUvxCli, hasXurlCli } from "../../env.js";
+import { hasUvxCli } from "../../env.js";
 import {
   estimateWhisperTranscriptionCostUsd,
   formatOptionalNumber,
@@ -31,16 +13,14 @@ import {
   formatUSD,
 } from "../../format.js";
 import { writeVerbose } from "../../logging.js";
-import {
-  deriveExtractionUi,
-  fetchLinkContentWithBirdTip,
-  logExtractionDiagnostics,
-} from "./extract.js";
+import { deriveExtractionUi, logExtractionDiagnostics } from "./extract.js";
+import { createUrlExtractionSession } from "./extraction-session.js";
 import { createUrlFlowProgress, writeSlidesBackgroundFailureWarning } from "./flow-progress.js";
 import { createMarkdownConverters } from "./markdown.js";
-import { createSlidesTerminalOutput } from "./slides-output.js";
+import { createUrlSlidesSession } from "./slides-session.js";
 import { buildUrlPrompt, outputExtractedUrl, summarizeExtractedUrl } from "./summary.js";
 import type { UrlFlowContext } from "./types.js";
+import { handleVideoOnlyExtractedContent } from "./video-only.js";
 
 export async function runUrlFlow({
   ctx,
@@ -107,21 +87,6 @@ export async function runUrlFlow({
     io.envForRun,
   );
 
-  const firecrawlApiKey = model.apiStatus.firecrawlApiKey;
-  const scrapeWithFirecrawl =
-    model.apiStatus.firecrawlConfigured && flags.firecrawlMode !== "off" && firecrawlApiKey
-      ? createFirecrawlScraper({
-          apiKey: firecrawlApiKey,
-          fetchImpl: io.fetch,
-        })
-      : null;
-
-  const readTweetWithBirdClient =
-    hasXurlCli(io.env) || hasBirdCli(io.env)
-      ? ({ url, timeoutMs }: { url: string; timeoutMs: number }) =>
-          readTweetWithPreferredClient({ url, timeoutMs, env: io.env })
-      : null;
-
   writeVerbose(io.stderr, flags.verbose, "extract start", flags.verboseColor, io.envForRun);
   const {
     handleSigint,
@@ -138,35 +103,13 @@ export async function runUrlFlow({
     websiteProgress,
   } = createUrlFlowProgress({ ctx, theme });
 
-  const cacheStore = cacheState.mode === "default" ? cacheState.store : null;
-  const transcriptCache = cacheStore ? cacheStore.transcriptCache : null;
-
-  const client = createLinkPreviewClient({
-    env: io.envForRun,
-    apifyApiToken: model.apiStatus.apifyToken,
-    ytDlpPath: model.apiStatus.ytDlpPath,
-    transcription: {
-      env: io.envForRun,
-      falApiKey: model.apiStatus.falApiKey,
-      groqApiKey: model.apiStatus.groqApiKey,
-      assemblyaiApiKey: model.apiStatus.assemblyaiApiKey,
-      openaiApiKey: model.apiStatus.openaiTranscriptionKey,
-      geminiApiKey: model.apiStatus.googleApiKey,
+  const extractionSession = createUrlExtractionSession({
+    ctx,
+    markdown: {
+      convertHtmlToMarkdown: markdown.convertHtmlToMarkdown,
+      effectiveMarkdownMode: markdown.effectiveMarkdownMode,
+      markdownRequested: markdown.markdownRequested,
     },
-    scrapeWithFirecrawl,
-    convertHtmlToMarkdown: markdown.convertHtmlToMarkdown,
-    readTweetWithBird: readTweetWithBirdClient,
-    resolveTwitterCookies: async (_args) => {
-      const res = await resolveTwitterCookies({ env: io.env });
-      return {
-        cookiesFromBrowser: res.cookies.cookiesFromBrowser,
-        source: res.cookies.source,
-        warnings: res.warnings,
-      };
-    },
-    fetch: io.fetch,
-    transcriptCache,
-    mediaCache: ctx.mediaCache ?? null,
     onProgress:
       websiteProgress || hooks.onLinkPreviewProgress
         ? (event) => {
@@ -179,337 +122,8 @@ export async function runUrlFlow({
   const pauseProgressLine = pauseProgress;
   hooks.setClearProgressBeforeStdout(pauseProgressLine);
   try {
-    const buildFetchOptions = (): FetchLinkContentOptions => ({
-      timeoutMs: flags.timeoutMs,
-      maxCharacters:
-        typeof flags.maxExtractCharacters === "number" && flags.maxExtractCharacters > 0
-          ? flags.maxExtractCharacters
-          : undefined,
-      youtubeTranscript: flags.youtubeMode,
-      mediaTranscript: flags.videoMode === "transcript" ? "prefer" : "auto",
-      transcriptTimestamps: flags.transcriptTimestamps,
-      firecrawl: flags.firecrawlMode,
-      format: markdown.markdownRequested ? "markdown" : "text",
-      markdownMode: markdown.markdownRequested ? markdown.effectiveMarkdownMode : undefined,
-      cacheMode: cacheState.mode,
-    });
-
-    const fetchWithCache = async (
-      targetUrl: string,
-      {
-        bypassExtractCache = false,
-      }: {
-        bypassExtractCache?: boolean;
-      } = {},
-    ): Promise<ExtractedLinkContent> => {
-      const options = buildFetchOptions();
-      const cacheKey =
-        cacheStore && cacheState.mode === "default"
-          ? buildExtractCacheKey({
-              url: targetUrl,
-              options: {
-                youtubeTranscript: options.youtubeTranscript,
-                mediaTranscript: options.mediaTranscript,
-                firecrawl: options.firecrawl,
-                format: options.format,
-                markdownMode: options.markdownMode ?? null,
-                transcriptTimestamps: options.transcriptTimestamps ?? false,
-                ...(typeof options.maxCharacters === "number"
-                  ? { maxCharacters: options.maxCharacters }
-                  : {}),
-              },
-            })
-          : null;
-      if (!bypassExtractCache && cacheKey && cacheStore) {
-        const cached = cacheStore.getJson<ExtractedLinkContent>("extract", cacheKey);
-        if (cached) {
-          writeVerbose(
-            io.stderr,
-            flags.verbose,
-            "cache hit extract",
-            flags.verboseColor,
-            io.envForRun,
-          );
-          return cached;
-        }
-        writeVerbose(
-          io.stderr,
-          flags.verbose,
-          "cache miss extract",
-          flags.verboseColor,
-          io.envForRun,
-        );
-      }
-      try {
-        const extracted = await fetchLinkContentWithBirdTip({
-          client,
-          url: targetUrl,
-          options,
-          env: io.env,
-        });
-        if (cacheKey && cacheStore) {
-          // Use a short TTL for extracts with unavailable transcripts so that
-          // transient transcript failures (e.g. Apify timeouts) are retried on the
-          // next run instead of being served from cache for the full default TTL.
-          const extractTtlMs =
-            extracted.transcriptSource === "unavailable" ? NEGATIVE_TTL_MS : cacheState.ttlMs;
-          cacheStore.setJson("extract", cacheKey, extracted, extractTtlMs);
-          writeVerbose(
-            io.stderr,
-            flags.verbose,
-            "cache write extract",
-            flags.verboseColor,
-            io.envForRun,
-          );
-        }
-        return extracted;
-      } catch (err) {
-        const preferUrlMode =
-          typeof urlUtils.shouldPreferUrlMode === "function"
-            ? urlUtils.shouldPreferUrlMode(targetUrl)
-            : false;
-        const isTwitter = urlUtils.isTwitterStatusUrl?.(targetUrl) ?? false;
-        if (!preferUrlMode || isTwitter) throw err;
-        // Fallback: skip HTML fetch and proceed with URL-only extraction (YouTube/direct media).
-        writeVerbose(
-          io.stderr,
-          flags.verbose,
-          `extract fallback url-only (${(err as Error).message ?? String(err)})`,
-          flags.verboseColor,
-          io.envForRun,
-        );
-        return {
-          content: "",
-          title: null,
-          description: null,
-          url: targetUrl,
-          siteName: null,
-          wordCount: 0,
-          totalCharacters: 0,
-          truncated: false,
-          mediaDurationSeconds: null,
-          video: null,
-          isVideoOnly: true,
-          transcriptSource: null,
-          transcriptCharacters: null,
-          transcriptWordCount: null,
-          transcriptLines: null,
-          transcriptMetadata: null,
-          transcriptSegments: null,
-          transcriptTimedText: null,
-          transcriptionProvider: null,
-          diagnostics: {
-            strategy: "html",
-            firecrawl: {
-              attempted: false,
-              used: false,
-              cacheMode: cacheState.mode,
-              cacheStatus: "bypassed",
-              notes: "skipped (url-only fallback)",
-            },
-            markdown: {
-              requested: false,
-              used: false,
-              provider: null,
-              notes: "skipped (url fallback)",
-            },
-            transcript: {
-              cacheMode: cacheState.mode,
-              cacheStatus: "unknown",
-              textProvided: false,
-              provider: null,
-              attemptedProviders: [],
-            },
-          },
-        };
-      }
-    };
-
-    let extracted = await fetchWithCache(url);
-    if (flags.slides && !resolveSlideSource({ url, extracted })) {
-      const isTwitter = urlUtils.isTwitterStatusUrl?.(url) ?? false;
-      if (isTwitter) {
-        const refreshed = await fetchWithCache(url, { bypassExtractCache: true });
-        if (resolveSlideSource({ url, extracted: refreshed })) {
-          writeVerbose(
-            io.stderr,
-            flags.verbose,
-            "extract refresh for slides",
-            flags.verboseColor,
-            io.envForRun,
-          );
-          extracted = refreshed;
-        }
-      }
-    }
+    let extracted = await extractionSession.fetchInitialExtract(url);
     let extractionUi = deriveExtractionUi(extracted);
-    let slidesExtracted: SlideExtractionResult | null = null;
-    let slidesDone = false;
-    let slidesTimelineResolved = false;
-    let resolveSlidesTimeline: ((value: SlideExtractionResult | null) => void) | null = null;
-    const slidesTimelinePromise = flags.slides
-      ? new Promise<SlideExtractionResult | null>((resolve) => {
-          resolveSlidesTimeline = resolve;
-        })
-      : null;
-
-    const resolveTimeline = (value: SlideExtractionResult | null) => {
-      if (slidesTimelineResolved) return;
-      slidesTimelineResolved = true;
-      resolveSlidesTimeline?.(value);
-    };
-    const slidesOutputEnabled =
-      Boolean(flags.slides) && flags.slidesOutput !== false && !flags.json && !flags.extractMode;
-    const slidesOutput = createSlidesTerminalOutput({
-      io,
-      flags: { plain: flags.plain, lengthArg: flags.lengthArg, slidesDebug: flags.slidesDebug },
-      extracted,
-      slides: null,
-      enabled: slidesOutputEnabled,
-      outputMode: "delta",
-      clearProgressForStdout: hooks.clearProgressForStdout,
-      restoreProgressAfterStdout: hooks.restoreProgressAfterStdout ?? null,
-      onProgressText: flags.progressEnabled
-        ? (text) => progressStatus.setSlides(renderStatusFromText(text))
-        : null,
-    });
-
-    if (slidesOutput) {
-      const existingSlidesExtracted = hooks.onSlidesExtracted;
-      const existingSlidesDone = hooks.onSlidesDone;
-      const existingSlideChunk = hooks.onSlideChunk;
-      hooks.onSlidesExtracted = (value) => {
-        existingSlidesExtracted?.(value);
-        slidesOutput.onSlidesExtracted(value);
-      };
-      hooks.onSlidesDone = (result) => {
-        existingSlidesDone?.(result);
-        progressStatus.clearSlides();
-        slidesOutput.onSlidesDone(result);
-      };
-      hooks.onSlideChunk = (chunk) => {
-        existingSlideChunk?.(chunk);
-        slidesOutput.onSlideChunk(chunk);
-      };
-    }
-
-    const markSlidesDone = (result: { ok: boolean; error?: string | null }) => {
-      if (slidesDone) return;
-      slidesDone = true;
-      progressStatus.clearSlides();
-      hooks.onSlidesDone?.(result);
-    };
-
-    const runSlidesExtraction = async (): Promise<SlideExtractionResult | null> => {
-      if (!flags.slides) return null;
-      if (slidesExtracted) {
-        if (!slidesDone) markSlidesDone({ ok: true });
-        return slidesExtracted;
-      }
-      let errorMessage: string | null = null;
-      try {
-        const source = resolveSlideSource({ url, extracted });
-        if (!source) {
-          throw new Error("Slides are only supported for YouTube or direct video URLs.");
-        }
-        const slidesCacheKey =
-          cacheStore && cacheState.mode === "default"
-            ? buildSlidesCacheKey({ url: source.url, settings: flags.slides })
-            : null;
-        if (slidesCacheKey && cacheStore) {
-          const cached = cacheStore.getJson<SlideExtractionResult>("slides", slidesCacheKey);
-          const validated = cached
-            ? await validateSlidesCache({ cached, source, settings: flags.slides })
-            : null;
-          if (validated) {
-            writeVerbose(
-              io.stderr,
-              flags.verbose,
-              "cache hit slides",
-              flags.verboseColor,
-              io.envForRun,
-            );
-            slidesExtracted = validated;
-            resolveTimeline(validated);
-            ctx.hooks.onSlidesExtracted?.(slidesExtracted);
-            ctx.hooks.onSlidesProgress?.("Slides: cached 100%");
-            return slidesExtracted;
-          }
-          writeVerbose(
-            io.stderr,
-            flags.verbose,
-            "cache miss slides",
-            flags.verboseColor,
-            io.envForRun,
-          );
-        }
-        if (flags.progressEnabled) {
-          progressStatus.setSlides(renderStatus("Extracting slides"));
-        }
-        // Prefer indeterminate progress until we get real percentage updates from the slide pipeline.
-        ctx.hooks.onSlidesProgress?.("Slides: extracting");
-        const onSlidesLog = (message: string) => {
-          writeVerbose(
-            io.stderr,
-            flags.verbose,
-            `slides ${message}`,
-            flags.verboseColor,
-            io.envForRun,
-          );
-        };
-        slidesExtracted = await extractSlidesForSource({
-          source,
-          settings: flags.slides,
-          noCache: cacheState.mode === "bypass",
-          mediaCache: ctx.mediaCache,
-          env: io.env,
-          timeoutMs: flags.timeoutMs,
-          ytDlpPath: model.apiStatus.ytDlpPath,
-          ytDlpCookiesFromBrowser: model.apiStatus.ytDlpCookiesFromBrowser,
-          ffmpegPath: null,
-          tesseractPath: null,
-          hooks: {
-            onSlideChunk: (chunk) => ctx.hooks.onSlideChunk?.(chunk),
-            onSlidesTimeline: (timeline) => {
-              resolveTimeline(timeline);
-              ctx.hooks.onSlidesExtracted?.(timeline);
-            },
-            onSlidesProgress: ctx.hooks.onSlidesProgress ?? undefined,
-            onSlidesLog,
-          },
-        });
-        if (slidesExtracted) {
-          ctx.hooks.onSlidesExtracted?.(slidesExtracted);
-          ctx.hooks.onSlidesProgress?.(
-            `Slides: done (${slidesExtracted.slides.length.toString()} slides) 100%`,
-          );
-          if (slidesCacheKey && cacheStore) {
-            cacheStore.setJson("slides", slidesCacheKey, slidesExtracted, cacheState.ttlMs);
-            writeVerbose(
-              io.stderr,
-              flags.verbose,
-              "cache write slides",
-              flags.verboseColor,
-              io.envForRun,
-            );
-          }
-        }
-        if (flags.progressEnabled) {
-          updateSummaryProgress();
-        }
-        return slidesExtracted;
-      } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
-        throw error;
-      } finally {
-        if (!slidesTimelineResolved) {
-          resolveTimeline(slidesExtracted ?? null);
-        }
-        if (!slidesDone) {
-          markSlidesDone(errorMessage ? { ok: false, error: errorMessage } : { ok: true });
-        }
-      }
-    };
 
     const formatSummaryProgress = (modelId?: string | null) => {
       const dim = (value: string) => theme.dim(value);
@@ -532,6 +146,17 @@ export async function runUrlFlow({
         flags.extractMode ? null : "Summarizing",
       );
     };
+
+    const slidesSession = createUrlSlidesSession({
+      ctx,
+      url,
+      extracted,
+      cacheStore: extractionSession.cacheStore,
+      progressStatus,
+      renderStatus,
+      renderStatusFromText,
+      updateSummaryProgress,
+    });
 
     updateSummaryProgress();
     logExtractionDiagnostics({
@@ -563,76 +188,31 @@ export async function runUrlFlow({
       io.stderr.write(`${UVX_TIP}\n`);
     }
 
-    if (!isYoutubeUrl && extracted.isVideoOnly && extracted.video) {
-      if (extracted.video.kind === "youtube") {
-        writeVerbose(
-          io.stderr,
-          flags.verbose,
-          `video-only page detected; switching to YouTube URL ${extracted.video.url}`,
-          flags.verboseColor,
-          io.envForRun,
-        );
-        if (flags.progressEnabled) {
-          spinner.setText(renderStatus("Video-only page", ": fetching YouTube transcript…"));
-        }
-        extracted = await fetchWithCache(extracted.video.url);
-        extractionUi = deriveExtractionUi(extracted);
-        updateSummaryProgress();
-      } else if (extracted.video.kind === "direct") {
-        const directVideoSlides = await runSlidesExtraction();
-        const wantsVideoUnderstanding =
-          flags.videoMode === "understand" || flags.videoMode === "auto";
-        // Direct video URLs require a model that can consume video attachments (currently Gemini).
-        const canVideoUnderstand =
-          wantsVideoUnderstanding &&
-          model.apiStatus.googleConfigured &&
-          (model.requestedModel.kind === "auto" ||
-            (model.fixedModelSpec?.transport === "native" &&
-              model.fixedModelSpec.provider === "google"));
-
-        if (canVideoUnderstand) {
-          hooks.onExtracted?.(extracted);
-          if (flags.progressEnabled) spinner.setText(renderStatus("Downloading video"));
-          const loadedVideo = await loadRemoteAsset({
-            url: extracted.video.url,
-            fetchImpl: io.fetch,
-            timeoutMs: flags.timeoutMs,
-          });
-          assertAssetMediaTypeSupported({ attachment: loadedVideo.attachment, sizeLabel: null });
-
-          let chosenModel: string | null = null;
-          if (flags.progressEnabled) spinner.setText(renderStatus("Summarizing video"));
-          await hooks.summarizeAsset({
-            sourceKind: "asset-url",
-            sourceLabel: loadedVideo.sourceLabel,
-            attachment: loadedVideo.attachment,
-            onModelChosen: (modelId) => {
-              chosenModel = modelId;
-              hooks.onModelChosen?.(modelId);
-              if (flags.progressEnabled) {
-                const meta = `${styleDim("(")}${styleDim("model: ")}${theme.accent(
-                  modelId,
-                )}${styleDim(")")}`;
-                spinner.setText(renderStatusWithMeta("Summarizing video", meta));
-              }
-            },
-          });
-          const slideCount = directVideoSlides ? directVideoSlides.slides.length : null;
-          hooks.writeViaFooter([
-            ...extractionUi.footerParts,
-            ...(chosenModel ? [`model ${chosenModel}`] : []),
-            ...(slideCount != null ? [`slides ${slideCount}`] : []),
-          ]);
-          return;
-        }
-      }
+    const videoOnlyResult = await handleVideoOnlyExtractedContent({
+      ctx,
+      extracted,
+      extractionUi,
+      isYoutubeUrl,
+      fetchWithCache: (targetUrl) => extractionSession.fetchWithCache(targetUrl),
+      runSlidesExtraction: slidesSession.runSlidesExtraction,
+      renderStatus,
+      renderStatusWithMeta,
+      spinner,
+      styleDim,
+      updateSummaryProgress,
+      accent: theme.accent,
+    });
+    if (videoOnlyResult.handled) {
+      return;
     }
+    extracted = videoOnlyResult.extracted;
+    extractionUi = videoOnlyResult.extractionUi;
+    slidesSession.setExtracted(extracted);
+    updateSummaryProgress();
 
-    // Start slides in parallel; wait for real timing data before prompting.
     if (flags.slides) {
-      void runSlidesExtraction().catch((error) => {
+      void slidesSession.runSlidesExtraction().catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
-        ctx.hooks.onSlidesProgress?.(`Slides: failed (${message})`);
         writeSlidesBackgroundFailureWarning({ ctx, theme, message });
         writeVerbose(
           io.stderr,
@@ -647,8 +227,8 @@ export async function runUrlFlow({
     hooks.onExtracted?.(extracted);
 
     let slidesForPrompt: SlideExtractionResult | null = null;
-    if (slidesTimelinePromise) {
-      slidesForPrompt = await slidesTimelinePromise;
+    if (slidesSession.slidesTimelinePromise) {
+      slidesForPrompt = await slidesSession.slidesTimelinePromise;
     }
 
     const prompt = buildUrlPrompt({
@@ -658,7 +238,7 @@ export async function runUrlFlow({
       promptOverride: flags.promptOverride ?? null,
       lengthInstruction: flags.lengthInstruction ?? null,
       languageInstruction: flags.languageInstruction ?? null,
-      slides: slidesForPrompt ?? slidesExtracted ?? null,
+      slides: slidesForPrompt ?? slidesSession.getSlidesExtracted() ?? null,
     });
 
     // Whisper transcription costs need to be folded into the finish line totals.
@@ -710,8 +290,8 @@ export async function runUrlFlow({
         prompt,
         effectiveMarkdownMode: markdown.effectiveMarkdownMode,
         transcriptionCostLabel,
-        slides: slidesExtracted ?? slidesForPrompt ?? null,
-        slidesOutput,
+        slides: slidesSession.getSlidesExtracted() ?? slidesForPrompt ?? null,
+        slidesOutput: slidesSession.slidesOutput,
       });
       return;
     }
@@ -731,8 +311,8 @@ export async function runUrlFlow({
       effectiveMarkdownMode: markdown.effectiveMarkdownMode,
       transcriptionCostLabel,
       onModelChosen,
-      slides: slidesExtracted ?? slidesForPrompt ?? null,
-      slidesOutput,
+      slides: slidesSession.getSlidesExtracted() ?? slidesForPrompt ?? null,
+      slidesOutput: slidesSession.slidesOutput,
     });
   } finally {
     if (flags.progressEnabled) {
