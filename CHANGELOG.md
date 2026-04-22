@@ -4,15 +4,15 @@
 
 ### Fixes
 
-- CLI build: mark the generated `dist/cli.js` wrapper executable so `npm link` and global installs can run the binary directly on Unix-like systems (#191, thanks @maciej).
-- CLI providers: use stable default aliases for Gemini (`flash`) and Cursor Agent (`auto`) so installed CLI versions resolve supported models reliably (#193, thanks @mvance).
 - YouTube and cache: make `--no-cache` bypass cached URL extraction, forward `OPENAI_API_KEY` into media transcription, and surface yt-dlp transcription failures in diagnostics (#197, thanks @mvance).
 - Chrome extension chat: isolate side-panel chat history by both tab and URL so navigating within a tab no longer shows another page's conversation (#189, thanks @Youpen-y).
-- Windows daemon: register the logon Scheduled Task via XML with battery-safe hidden launch settings, fix restart/uninstall process cleanup, and document the Administrator install flow (#192, thanks @ajmeese7).
-- OpenClaw CLI: call current OpenClaw with `-m/--message` and reject oversized prompts before hitting argv limits (#199, thanks @Silver-Aurora).
-- X extraction: surface unauthorized `xurl` responses with actionable auth/fallback guidance when Nitter is unavailable (#200, thanks @coygeek).
 - Chrome extension chat: honor `openai.useChatCompletions` for side-panel chat requests, including fixed and auto-selected OpenAI models (#155, thanks @Zevan770).
 - Spotify podcasts: skip encrypted Spotify embed audio, fall back to publisher RSS enclosures, and surface podcast transcription failures instead of summarizing a bare URL.
+- X extraction: surface unauthorized `xurl` responses with actionable auth/fallback guidance when Nitter is unavailable (#200, thanks @coygeek).
+- OpenClaw CLI: call current OpenClaw with `-m/--message` and reject oversized prompts before hitting argv limits (#199, thanks @Silver-Aurora).
+- Windows daemon: register the logon Scheduled Task via XML with battery-safe hidden launch settings, fix restart/uninstall process cleanup, and document the Administrator install flow (#192, thanks @ajmeese7).
+- CLI providers: use stable default aliases for Gemini (`flash`) and Cursor Agent (`auto`) so installed CLI versions resolve supported models reliably (#193, thanks @mvance).
+- CLI build: mark the generated `dist/cli.js` wrapper executable so `npm link` and global installs can run the binary directly on Unix-like systems (#191, thanks @maciej).
 - CLI progress: show only the active transcription provider/model in status text instead of the full remote fallback chain.
 
 ## 0.13.0 - 2026-04-08
