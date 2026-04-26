@@ -5,6 +5,7 @@ import {
   resolveGitHubModelsApiKey,
 } from "./github-models.js";
 import { normalizeGatewayStyleModelId, parseGatewayStyleModelId } from "./model-id.js";
+import type { ModelRequestOptions } from "./model-options.js";
 import { resolveOpenAiClientConfig } from "./providers/openai.js";
 import type { OpenAiClientConfig } from "./providers/types.js";
 
@@ -197,6 +198,7 @@ export function resolveOpenAiCompatibleClientConfigForProvider({
   forceOpenRouter,
   openaiBaseUrlOverride,
   forceChatCompletions,
+  requestOptions,
 }: {
   provider: "openai" | "zai" | "nvidia" | "github-copilot";
   openaiApiKey: string | null;
@@ -204,6 +206,7 @@ export function resolveOpenAiCompatibleClientConfigForProvider({
   forceOpenRouter?: boolean;
   openaiBaseUrlOverride?: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelRequestOptions;
 }): OpenAiClientConfig {
   if (provider === "openai") {
     return resolveOpenAiClientConfig({
@@ -214,6 +217,7 @@ export function resolveOpenAiCompatibleClientConfigForProvider({
       forceOpenRouter,
       openaiBaseUrlOverride,
       forceChatCompletions,
+      requestOptions,
     });
   }
   if (provider === "github-copilot") {
@@ -227,6 +231,7 @@ export function resolveOpenAiCompatibleClientConfigForProvider({
       useChatCompletions: true,
       isOpenRouter: false,
       extraHeaders: buildGitHubModelsHeaders(),
+      ...(requestOptions ? { requestOptions } : {}),
     };
   }
 
@@ -246,5 +251,6 @@ export function resolveOpenAiCompatibleClientConfigForProvider({
       (provider === "zai" ? "https://api.z.ai/api/paas/v4" : "https://integrate.api.nvidia.com/v1"),
     useChatCompletions: true,
     isOpenRouter: false,
+    ...(requestOptions ? { requestOptions } : {}),
   };
 }

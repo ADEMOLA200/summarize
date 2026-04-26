@@ -2,6 +2,7 @@ import type { ConvertHtmlToMarkdown } from "@steipete/summarize-core/content";
 import type { LlmTokenUsage } from "./generate-text.js";
 import { generateTextWithModelId } from "./generate-text.js";
 import type { LlmProvider } from "./model-id.js";
+import type { ModelRequestOptions } from "./model-options.js";
 
 const MAX_HTML_INPUT_CHARACTERS = 200_000;
 
@@ -52,6 +53,7 @@ export function createHtmlToMarkdownConverter({
   openrouterApiKey,
   fetchImpl,
   forceChatCompletions,
+  requestOptions,
   retries = 0,
   onRetry,
   onUsage,
@@ -69,6 +71,7 @@ export function createHtmlToMarkdownConverter({
   anthropicApiKey: string | null;
   openrouterApiKey: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelRequestOptions;
   retries?: number;
   onRetry?: (notice: {
     attempt: number;
@@ -97,6 +100,7 @@ export function createHtmlToMarkdownConverter({
       googleBaseUrlOverride,
       xaiBaseUrlOverride,
       forceChatCompletions,
+      requestOptions,
       prompt: { system, userText: prompt },
       timeoutMs,
       fetchImpl,

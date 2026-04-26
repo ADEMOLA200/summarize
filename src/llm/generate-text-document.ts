@@ -4,6 +4,7 @@ import {
   resolveGoogleEmptyResponseFallbackModelId,
 } from "./generate-text-shared.js";
 import type { LlmProvider } from "./model-id.js";
+import type { ModelRequestOptions } from "./model-options.js";
 import type { Prompt } from "./prompt.js";
 import {
   resolveOpenAiCompatibleClientConfigForProvider,
@@ -48,6 +49,7 @@ export async function maybeGenerateDocumentText(options: {
   anthropicBaseUrlOverride?: string | null;
   googleBaseUrlOverride?: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelRequestOptions;
   retryWithModelId: (modelId: string) => Promise<DocumentResult>;
 }): Promise<DocumentResult | null> {
   const {
@@ -63,6 +65,7 @@ export async function maybeGenerateDocumentText(options: {
     anthropicBaseUrlOverride,
     googleBaseUrlOverride,
     forceChatCompletions,
+    requestOptions,
     retryWithModelId,
   } = options;
   const attachments = prompt.attachments ?? [];
@@ -114,6 +117,7 @@ export async function maybeGenerateDocumentText(options: {
       forceOpenRouter,
       openaiBaseUrlOverride,
       forceChatCompletions,
+      requestOptions,
     });
     const result = await completeOpenAiDocument({
       modelId: parsed.model,

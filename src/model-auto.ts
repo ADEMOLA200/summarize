@@ -1,6 +1,7 @@
 import * as piAi from "@mariozechner/pi-ai";
 import type { AutoRuleKind, CliProvider, SummarizeConfig } from "./config.js";
 import { normalizeGatewayStyleModelId, parseGatewayStyleModelId } from "./llm/model-id.js";
+import type { ModelRequestOptions } from "./llm/model-options.js";
 import {
   DEFAULT_CLI_MODELS,
   envHasRequiredKey,
@@ -15,6 +16,7 @@ import {
   type ResolvedCliAutoFallbackConfig,
 } from "./model-auto-cli.js";
 import { resolveRuleCandidates } from "./model-auto-rules.js";
+import { resolveOpenAiFastModelId } from "./model-spec.js";
 import type { LiteLlmCatalog } from "./pricing/litellm.js";
 import {
   resolveLiteLlmMaxInputTokensForModelId,
@@ -47,6 +49,7 @@ export type AutoModelAttempt = {
   openrouterProviders: string[] | null;
   forceOpenRouter: boolean;
   requiredEnv: RequiredModelEnv;
+  requestOptions?: ModelRequestOptions;
   debug: string;
 };
 
@@ -307,6 +310,13 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
           : options.openrouter
             ? `openai/${openrouterModelId}`
             : normalizeGatewayStyleModelId(modelId);
+      const parsedLlmModelId =
+        options.transport === "native" && llmModelId ? parseGatewayStyleModelId(llmModelId) : null;
+      const fastOpenAi =
+        parsedLlmModelId?.provider === "openai"
+          ? resolveOpenAiFastModelId(parsedLlmModelId.model)
+          : null;
+      const effectiveLlmModelId = fastOpenAi ? `openai/${fastOpenAi.modelId}` : llmModelId;
       const debugParts = [
         `model=${
           options.transport === "cli"
@@ -326,10 +336,11 @@ export function buildAutoModelAttempts(input: AutoSelectionInput): AutoModelAtte
       attempts.push({
         transport: options.transport,
         userModelId: options.openrouter ? `openrouter/${openrouterModelId}` : userModelId,
-        llmModelId,
+        llmModelId: effectiveLlmModelId,
         openrouterProviders: options.openrouterProviders,
         forceOpenRouter: options.openrouter,
         requiredEnv: required,
+        ...(fastOpenAi ? { requestOptions: fastOpenAi.options } : {}),
         debug: debugParts.join(" "),
       });
     };

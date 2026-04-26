@@ -5,6 +5,7 @@ import { resolveEffectiveTemperature, streamUsageWithTimeout } from "./generate-
 import type { LlmApiKeys } from "./generate-text.js";
 import { parseGatewayStyleModelId } from "./model-id.js";
 import type { LlmProvider } from "./model-id.js";
+import type { ModelRequestOptions } from "./model-options.js";
 import {
   resolveOpenAiCompatibleClientConfigForProvider,
   supportsStreaming,
@@ -34,6 +35,7 @@ export type StreamTextWithContextArgs = {
   googleBaseUrlOverride?: string | null;
   xaiBaseUrlOverride?: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelRequestOptions;
 };
 
 export type StreamTextResult = {
@@ -155,6 +157,7 @@ export async function streamTextWithContext({
   googleBaseUrlOverride,
   xaiBaseUrlOverride,
   forceChatCompletions,
+  requestOptions,
 }: StreamTextWithContextArgs): Promise<StreamTextResult> {
   const parsed = parseGatewayStyleModelId(modelId);
   if (!supportsStreaming(parsed.provider)) {
@@ -293,8 +296,12 @@ export async function streamTextWithContext({
         forceOpenRouter,
         openaiBaseUrlOverride,
         forceChatCompletions,
+        requestOptions,
       });
-      if (parsed.provider === "github-copilot") {
+      if (
+        parsed.provider === "github-copilot" ||
+        (parsed.provider === "openai" && requestOptions)
+      ) {
         const result = await completeOpenAiText({
           modelId: parsed.model,
           openaiConfig,

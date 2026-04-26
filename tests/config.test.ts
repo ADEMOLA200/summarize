@@ -547,6 +547,32 @@ describe("config loading", () => {
     });
   });
 
+  it("parses OpenAI request options and model preset thinking aliases", () => {
+    const { root } = writeJsonConfig({
+      model: { id: "openai/gpt-5.5", thinking: "mid", serviceTier: "fast" },
+      models: {
+        careful: { id: "openai/gpt-5.4", reasoningEffort: "high", textVerbosity: "low" },
+      },
+      openai: { thinking: "low", serviceTier: "priority", textVerbosity: "medium" },
+    });
+    const result = loadSummarizeConfig({ env: { HOME: root } });
+    expect(result.config?.model).toEqual({
+      id: "openai/gpt-5.5",
+      reasoningEffort: "medium",
+      serviceTier: "fast",
+    });
+    expect(result.config?.models?.careful).toEqual({
+      id: "openai/gpt-5.4",
+      reasoningEffort: "high",
+      textVerbosity: "low",
+    });
+    expect(result.config?.openai).toEqual({
+      reasoningEffort: "low",
+      serviceTier: "priority",
+      textVerbosity: "medium",
+    });
+  });
+
   it("parses provider baseUrl config sections", () => {
     const { root } = writeJsonConfig({
       model: { id: "openai/gpt-5.2" },

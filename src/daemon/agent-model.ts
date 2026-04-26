@@ -322,7 +322,7 @@ export async function resolveAgentModel({
       return { ...resolved, maxOutputTokens, apiKeys };
     }
 
-    const { provider, model } = parseProviderModelId(requestedModel.userModelId);
+    const { provider, model } = parseProviderModelId(requestedModel.llmModelId);
     const resolved = applyBaseUrlOverride(provider, model);
     return { ...resolved, maxOutputTokens, apiKeys };
   }
@@ -356,7 +356,8 @@ export async function resolveAgentModel({
       const resolved = applyBaseUrlOverride("openrouter", modelId);
       return { ...resolved, maxOutputTokens, apiKeys };
     }
-    const { provider, model } = parseProviderModelId(attempt.userModelId);
+    if (!attempt.llmModelId) continue;
+    const { provider, model } = parseProviderModelId(attempt.llmModelId);
     const resolved = applyBaseUrlOverride(provider, model);
     return { ...resolved, maxOutputTokens, apiKeys };
   }

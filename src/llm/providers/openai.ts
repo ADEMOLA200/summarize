@@ -3,6 +3,7 @@ import { completeSimple } from "@mariozechner/pi-ai";
 import { isOpenRouterBaseUrl, normalizeBaseUrl } from "@steipete/summarize-core";
 import type { Attachment } from "../attachments.js";
 import { createUnsupportedFunctionalityError } from "../errors.js";
+import { toOpenAiServiceTierParam, type ModelRequestOptions } from "../model-options.js";
 import type { LlmTokenUsage } from "../types.js";
 import { normalizeOpenAiUsage, normalizeTokenUsage } from "../usage.js";
 import { resolveOpenAiModel } from "./models.js";
@@ -17,6 +18,7 @@ export type OpenAiClientConfigInput = {
   forceOpenRouter?: boolean;
   openaiBaseUrlOverride?: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelRequestOptions;
 };
 
 type OpenAiTextCompletionResult = {
@@ -48,6 +50,7 @@ export function resolveOpenAiClientConfig({
   forceOpenRouter,
   openaiBaseUrlOverride,
   forceChatCompletions,
+  requestOptions,
 }: OpenAiClientConfigInput): OpenAiClientConfig {
   const baseUrlRaw =
     openaiBaseUrlOverride ??
@@ -92,6 +95,7 @@ export function resolveOpenAiClientConfig({
     baseURL: baseURL ?? undefined,
     useChatCompletions,
     isOpenRouter,
+    ...(requestOptions ? { requestOptions } : {}),
   };
 }
 
@@ -140,6 +144,32 @@ function stripOpenAiProviderPrefix(modelId: string): string {
 function isOpenAiResponsesTextModelId(modelId: string): boolean {
   const normalized = stripOpenAiProviderPrefix(modelId).toLowerCase();
   return normalized.startsWith("gpt-5") && normalized !== "gpt-5-chat";
+}
+
+function buildOpenAiResponsesRequestOptions(
+  requestOptions: ModelRequestOptions | undefined,
+): Record<string, unknown> {
+  if (!requestOptions) return {};
+  const serviceTier = toOpenAiServiceTierParam(requestOptions.serviceTier);
+  return {
+    ...(serviceTier ? { service_tier: serviceTier } : {}),
+    ...(requestOptions.reasoningEffort
+      ? { reasoning: { effort: requestOptions.reasoningEffort } }
+      : {}),
+    ...(requestOptions.textVerbosity ? { text: { verbosity: requestOptions.textVerbosity } } : {}),
+  };
+}
+
+function buildOpenAiChatRequestOptions(
+  requestOptions: ModelRequestOptions | undefined,
+): Record<string, unknown> {
+  if (!requestOptions) return {};
+  const serviceTier = toOpenAiServiceTierParam(requestOptions.serviceTier);
+  return {
+    ...(serviceTier ? { service_tier: serviceTier } : {}),
+    ...(requestOptions.reasoningEffort ? { reasoning_effort: requestOptions.reasoningEffort } : {}),
+    ...(requestOptions.textVerbosity ? { verbosity: requestOptions.textVerbosity } : {}),
+  };
 }
 
 function resolveGitHubModelsCompatFallbackModelId(modelId: string): string | null {
@@ -281,12 +311,13 @@ async function completeOpenAiChatText({
   fetchImpl: typeof fetch;
 }): Promise<OpenAiTextCompletionResult> {
   const baseUrl = openaiConfig.baseURL ?? "https://api.openai.com/v1";
-  const response = await fetchImpl(resolveOpenAiChatCompletionsUrl(baseUrl), {
+  const response = await fetchImpl(String(resolveOpenAiChatCompletionsUrl(baseUrl)), {
     method: "POST",
     headers: buildOpenAiRequestHeaders(openaiConfig),
     body: JSON.stringify({
       model: modelId,
       messages: contextToChatCompletionMessages(context),
+      ...buildOpenAiChatRequestOptions(openaiConfig.requestOptions),
       ...(typeof maxOutputTokens === "number" ? { max_tokens: maxOutputTokens } : {}),
       ...(typeof temperature === "number" ? { temperature } : {}),
     }),
@@ -325,13 +356,14 @@ async function completeOpenAiResponsesText({
   fetchImpl: typeof fetch;
 }): Promise<OpenAiTextCompletionResult> {
   const baseUrl = openaiConfig.baseURL ?? "https://api.openai.com/v1";
-  const response = await fetchImpl(resolveOpenAiResponsesUrl(baseUrl), {
+  const response = await fetchImpl(String(resolveOpenAiResponsesUrl(baseUrl)), {
     method: "POST",
     headers: buildOpenAiRequestHeaders(openaiConfig),
     body: JSON.stringify({
       model: modelId,
       input: contextToResponsesInput(context),
       ...(context.systemPrompt?.trim() ? { instructions: context.systemPrompt.trim() } : {}),
+      ...buildOpenAiResponsesRequestOptions(openaiConfig.requestOptions),
       ...(typeof maxOutputTokens === "number" ? { max_output_tokens: maxOutputTokens } : {}),
       ...(typeof temperature === "number" ? { temperature } : {}),
     }),
@@ -416,6 +448,22 @@ export async function completeOpenAiText({
 }): Promise<OpenAiTextCompletionResult> {
   if (isGitHubModelsBaseUrl(openaiConfig.baseURL)) {
     return completeGitHubModelsText({
+      modelId,
+      openaiConfig,
+      context,
+      temperature,
+      maxOutputTokens,
+      signal,
+      fetchImpl,
+    });
+  }
+  if (
+    openaiConfig.useChatCompletions &&
+    openaiConfig.requestOptions &&
+    !openaiConfig.isOpenRouter &&
+    isApiOpenAiBaseUrl(openaiConfig.baseURL)
+  ) {
+    return completeOpenAiChatText({
       modelId,
       openaiConfig,
       context,
@@ -521,12 +569,13 @@ export async function completeOpenAiDocument({
         ],
       },
     ],
+    ...buildOpenAiResponsesRequestOptions(openaiConfig.requestOptions),
     ...(typeof maxOutputTokens === "number" ? { max_output_tokens: maxOutputTokens } : {}),
     ...(typeof temperature === "number" ? { temperature } : {}),
   };
 
   try {
-    const response = await fetchImpl(url, {
+    const response = await fetchImpl(String(url), {
       method: "POST",
       headers: {
         "content-type": "application/json",

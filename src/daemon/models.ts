@@ -171,7 +171,8 @@ export async function buildModelPickerOptions({
 
   const options: ModelPickerOption[] = [
     { id: "auto", label: "Auto" },
-    { id: "gpt-fast", label: "GPT Fast (Codex)" },
+    { id: "fast", label: "OpenAI GPT-5.5 Fast" },
+    { id: "codex-fast", label: "GPT Fast (Codex)" },
   ];
 
   if (providers.cliClaude) {

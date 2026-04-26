@@ -4,7 +4,7 @@
 
 ### Features
 
-- Models: add built-in `gpt-fast` / `fast` presets that run Codex with GPT-5.5 Fast mode via `service_tier="fast"`, including daemon and Chrome extension model pickers.
+- Models: add OpenAI fast-service support via `--fast` / `--service-tier` and `--thinking`, keep `gpt-fast` / `fast` as compatibility aliases, and add explicit `codex-fast` for Codex CLI users.
 - Chrome extension: add a background extractor router with Reddit thread `.json` extraction and diagnostics while preserving media URL hard-switch behavior (#207, fixes #174, thanks @solomonneas).
 - CLI extraction: support `--extract` for local PDF files through the existing markitdown preprocessing path, without requiring an LLM (#203, thanks @mvance).
 

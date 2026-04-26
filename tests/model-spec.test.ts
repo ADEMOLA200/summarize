@@ -99,6 +99,25 @@ describe("model spec parsing", () => {
     expect(parsed.requiredEnv).toBe("XAI_API_KEY");
   });
 
+  it("maps OpenAI GPT fast suffixes to service tier request options", () => {
+    const parsed = parseRequestedModelId("openai/gpt-5.4-mini-fast");
+    expect(parsed.kind).toBe("fixed");
+    expect(parsed.transport).toBe("native");
+    expect(parsed.userModelId).toBe("openai/gpt-5.4-mini-fast");
+    expect(parsed.llmModelId).toBe("openai/gpt-5.4-mini");
+    expect(parsed.requestOptions).toEqual({ serviceTier: "fast" });
+  });
+
+  it("maps bare OpenAI GPT fast suffixes to OpenAI", () => {
+    const parsed = parseRequestedModelId("gpt-5.5-fast");
+    expect(parsed.kind).toBe("fixed");
+    expect(parsed.transport).toBe("native");
+    expect(parsed.userModelId).toBe("gpt-5.5-fast");
+    expect(parsed.llmModelId).toBe("openai/gpt-5.5");
+    expect(parsed.requiredEnv).toBe("OPENAI_API_KEY");
+    expect(parsed.requestOptions).toEqual({ serviceTier: "fast" });
+  });
+
   it("maps native providers to required env", () => {
     const google = parseRequestedModelId("google/gemini-3-flash-preview");
     expect(google.kind).toBe("fixed");

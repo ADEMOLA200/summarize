@@ -383,6 +383,86 @@ describe("openai provider helpers", () => {
     expect(result.resolvedModelId).toBe("gpt-5.4");
   });
 
+  it("forwards OpenAI Responses request options", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        service_tier?: string;
+        reasoning?: { effort?: string };
+        text?: { verbosity?: string };
+      };
+      expect(body.service_tier).toBe("priority");
+      expect(body.reasoning?.effort).toBe("medium");
+      expect(body.text?.verbosity).toBe("low");
+      return new Response(JSON.stringify({ output_text: "ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const result = await completeOpenAiText({
+      modelId: "gpt-5.5",
+      openaiConfig: {
+        apiKey: "oa-key",
+        baseURL: "https://api.openai.com/v1",
+        useChatCompletions: false,
+        isOpenRouter: false,
+        requestOptions: {
+          serviceTier: "fast",
+          reasoningEffort: "medium",
+          textVerbosity: "low",
+        },
+      },
+      context: {
+        systemPrompt: null,
+        messages: [{ role: "user", content: "hello" }],
+      },
+      signal: new AbortController().signal,
+      fetchImpl: fetchMock as typeof fetch,
+    });
+
+    expect(result.text).toBe("ok");
+  });
+
+  it("forwards OpenAI Chat Completions request options", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        service_tier?: string;
+        reasoning_effort?: string;
+        verbosity?: string;
+      };
+      expect(body.service_tier).toBe("priority");
+      expect(body.reasoning_effort).toBe("low");
+      expect(body.verbosity).toBe("high");
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const result = await completeOpenAiText({
+      modelId: "gpt-5.5",
+      openaiConfig: {
+        apiKey: "oa-key",
+        baseURL: "https://api.openai.com/v1",
+        useChatCompletions: true,
+        isOpenRouter: false,
+        requestOptions: {
+          serviceTier: "fast",
+          reasoningEffort: "low",
+          textVerbosity: "high",
+        },
+      },
+      context: {
+        systemPrompt: null,
+        messages: [{ role: "user", content: "hello" }],
+      },
+      signal: new AbortController().signal,
+      fetchImpl: fetchMock as typeof fetch,
+    });
+
+    expect(result.text).toBe("ok");
+  });
+
   it("uses chat completions directly for OpenRouter GPT-5-family text models", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");

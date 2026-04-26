@@ -1,4 +1,5 @@
 import { parseLengthArg } from "../flags.js";
+import { parseOpenAiReasoningEffort, parseOpenAiTextVerbosity } from "../llm/model-options.js";
 import { isCliThemeName, listCliThemes } from "../tty/theme.js";
 import {
   isRecord,
@@ -486,6 +487,34 @@ export function parseOpenAiConfig(
   const baseUrl = parseOptionalBaseUrl(value.baseUrl);
   const useChatCompletions =
     typeof value.useChatCompletions === "boolean" ? value.useChatCompletions : undefined;
+  const serviceTier =
+    typeof value.serviceTier === "string" && value.serviceTier.trim().length > 0
+      ? value.serviceTier.trim()
+      : undefined;
+  const reasoningRaw =
+    typeof value.reasoningEffort === "string"
+      ? value.reasoningEffort
+      : typeof value.thinking === "string"
+        ? value.thinking
+        : undefined;
+  if (
+    typeof value.reasoningEffort !== "undefined" &&
+    typeof value.thinking !== "undefined" &&
+    String(value.reasoningEffort).trim().toLowerCase() !==
+      String(value.thinking).trim().toLowerCase()
+  ) {
+    throw new Error(
+      `Invalid config file ${path}: "openai.reasoningEffort" and "openai.thinking" must not conflict.`,
+    );
+  }
+  const reasoningEffort =
+    typeof reasoningRaw === "string"
+      ? parseOpenAiReasoningEffort(reasoningRaw, "openai.reasoningEffort")
+      : undefined;
+  const textVerbosity =
+    typeof value.textVerbosity === "string"
+      ? parseOpenAiTextVerbosity(value.textVerbosity, "openai.textVerbosity")
+      : undefined;
   const whisperUsdPerMinuteRaw = value.whisperUsdPerMinute;
   const whisperUsdPerMinute =
     typeof whisperUsdPerMinuteRaw === "number" &&
@@ -496,10 +525,16 @@ export function parseOpenAiConfig(
 
   return typeof baseUrl === "string" ||
     typeof useChatCompletions === "boolean" ||
+    typeof serviceTier === "string" ||
+    typeof reasoningEffort === "string" ||
+    typeof textVerbosity === "string" ||
     typeof whisperUsdPerMinute === "number"
     ? {
         ...(typeof baseUrl === "string" ? { baseUrl } : {}),
         ...(typeof useChatCompletions === "boolean" ? { useChatCompletions } : {}),
+        ...(typeof serviceTier === "string" ? { serviceTier } : {}),
+        ...(typeof reasoningEffort === "string" ? { reasoningEffort } : {}),
+        ...(typeof textVerbosity === "string" ? { textVerbosity } : {}),
         ...(typeof whisperUsdPerMinute === "number" ? { whisperUsdPerMinute } : {}),
       }
     : undefined;

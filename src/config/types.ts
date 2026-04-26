@@ -1,6 +1,13 @@
 export type AutoRuleKind = "text" | "website" | "youtube" | "image" | "video" | "file";
 export type VideoMode = "auto" | "transcript" | "understand";
 export type CliProvider = "claude" | "codex" | "gemini" | "agent" | "openclaw" | "opencode";
+export type OpenAiReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+export type OpenAiTextVerbosity = "low" | "medium" | "high";
+export type ModelRequestOptions = {
+  serviceTier?: string;
+  reasoningEffort?: OpenAiReasoningEffort;
+  textVerbosity?: OpenAiTextVerbosity;
+};
 export type CliProviderConfig = {
   binary?: string;
   extraArgs?: string[];
@@ -36,6 +43,10 @@ export type OpenAiConfig = {
    */
   baseUrl?: string;
   useChatCompletions?: boolean;
+  serviceTier?: string;
+  reasoningEffort?: OpenAiReasoningEffort;
+  thinking?: OpenAiReasoningEffort;
+  textVerbosity?: OpenAiTextVerbosity;
   /**
    * USD per minute for OpenAI Whisper transcription cost estimation.
    *
@@ -161,6 +172,10 @@ export type AutoRule = {
 export type ModelConfig =
   | {
       id: string;
+      serviceTier?: string;
+      reasoningEffort?: OpenAiReasoningEffort;
+      thinking?: OpenAiReasoningEffort;
+      textVerbosity?: OpenAiTextVerbosity;
     }
   | {
       mode: "auto";

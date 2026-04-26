@@ -4,6 +4,7 @@ import { runCliModel } from "../llm/cli.js";
 import type { LlmApiKeys } from "../llm/generate-text.js";
 import { streamTextWithContext } from "../llm/generate-text.js";
 import { resolveGitHubModelsApiKey } from "../llm/github-models.js";
+import { mergeModelRequestOptions } from "../llm/model-options.js";
 import { buildAutoModelAttempts, envHasKey } from "../model-auto.js";
 import { parseBooleanEnv, parseCliUserModelId } from "../run/env.js";
 import { resolveEnvState } from "../run/run-env.js";
@@ -140,6 +141,7 @@ export async function streamChatResponse({
   const apiKeys = resolveApiKeys(env, configForCli);
   const envState = resolveEnvState({ env, envForRun: env, configForCli });
   const openaiUseChatCompletions = resolveOpenAiUseChatCompletions({ env, configForCli });
+  const openaiRequestOptions = mergeModelRequestOptions(configForCli?.openai);
   const context = buildContext({ pageUrl, pageTitle, pageContent, messages });
 
   const resolveModel = () => {
@@ -201,6 +203,7 @@ export async function streamChatResponse({
         forceChatCompletions:
           Boolean(requested.forceChatCompletions) ||
           (requested.provider === "openai" && openaiUseChatCompletions),
+        requestOptions: requested.requestOptions,
       };
     }
     return null;
@@ -239,6 +242,7 @@ export async function streamChatResponse({
       forceOpenRouter: resolved.forceOpenRouter,
       openaiBaseUrlOverride: resolved.openaiBaseUrlOverride,
       forceChatCompletions: resolved.forceChatCompletions,
+      requestOptions: mergeModelRequestOptions(openaiRequestOptions, resolved.requestOptions),
     });
     for await (const chunk of result.textStream) {
       pushToSession({ event: "content", data: chunk });
@@ -302,6 +306,7 @@ export async function streamChatResponse({
     fetchImpl,
     forceOpenRouter: attempt.forceOpenRouter,
     forceChatCompletions: attempt.requiredEnv === "OPENAI_API_KEY" && openaiUseChatCompletions,
+    requestOptions: mergeModelRequestOptions(openaiRequestOptions, attempt.requestOptions),
   });
   for await (const chunk of result.textStream) {
     pushToSession({ event: "content", data: chunk });

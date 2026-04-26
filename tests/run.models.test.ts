@@ -17,15 +17,32 @@ describe("run model selection", () => {
       expect(result.requestedModelLabel).toBe(name);
       expect(result.requestedModel.kind).toBe("fixed");
       if (result.requestedModel.kind === "fixed") {
-        expect(result.requestedModel.userModelId).toBe("cli/codex/gpt-fast");
-        expect(result.requestedModel.transport).toBe("cli");
-        expect(result.requestedModel.llmModelId).toBeNull();
-        expect(result.requestedModel.requiredEnv).toBe("CLI_CODEX");
-        if (result.requestedModel.transport === "cli") {
-          expect(result.requestedModel.cliProvider).toBe("codex");
-          expect(result.requestedModel.cliModel).toBe("gpt-fast");
-        }
+        expect(result.requestedModel.userModelId).toBe("openai/gpt-5.5");
+        expect(result.requestedModel.transport).toBe("native");
+        expect(result.requestedModel.llmModelId).toBe("openai/gpt-5.5");
+        expect(result.requestedModel.requiredEnv).toBe("OPENAI_API_KEY");
+        expect(result.requestedModel.requestOptions).toEqual({
+          serviceTier: "fast",
+          reasoningEffort: "medium",
+        });
       }
+    }
+  });
+
+  it("keeps the Codex fast preset available explicitly", () => {
+    const result = resolveModelSelection({
+      config: null,
+      configForCli: null,
+      configPath: null,
+      envForRun: {},
+      explicitModelArg: "codex-fast",
+    });
+
+    expect(result.requestedModel.kind).toBe("fixed");
+    expect(result.requestedModel.userModelId).toBe("cli/codex/gpt-fast");
+    if (result.requestedModel.kind === "fixed" && result.requestedModel.transport === "cli") {
+      expect(result.requestedModel.cliProvider).toBe("codex");
+      expect(result.requestedModel.cliModel).toBe("gpt-fast");
     }
   });
 

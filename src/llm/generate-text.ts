@@ -14,6 +14,7 @@ import {
 import { streamTextWithContext } from "./generate-text-stream.js";
 import { parseGatewayStyleModelId } from "./model-id.js";
 import type { LlmProvider } from "./model-id.js";
+import type { ModelRequestOptions } from "./model-options.js";
 import type { Prompt } from "./prompt.js";
 import { resolveOpenAiCompatibleClientConfigForProvider } from "./provider-capabilities.js";
 import {
@@ -72,6 +73,7 @@ export async function generateTextWithModelId({
   xaiBaseUrlOverride,
   zaiBaseUrlOverride,
   forceChatCompletions,
+  requestOptions,
   retries = 0,
   onRetry,
 }: {
@@ -89,6 +91,7 @@ export async function generateTextWithModelId({
   xaiBaseUrlOverride?: string | null;
   zaiBaseUrlOverride?: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelRequestOptions;
   retries?: number;
   onRetry?: (notice: RetryNotice) => void;
 }): Promise<{
@@ -117,6 +120,7 @@ export async function generateTextWithModelId({
     anthropicBaseUrlOverride,
     googleBaseUrlOverride,
     forceChatCompletions,
+    requestOptions,
     retryWithModelId: (fallbackModelId) =>
       generateTextWithModelId({
         modelId: fallbackModelId,
@@ -133,6 +137,7 @@ export async function generateTextWithModelId({
         xaiBaseUrlOverride,
         zaiBaseUrlOverride,
         forceChatCompletions,
+        requestOptions,
         retries,
         onRetry,
       }),
@@ -153,6 +158,7 @@ export async function generateTextWithModelId({
       forceOpenRouter,
       openaiBaseUrlOverride,
       forceChatCompletions,
+      requestOptions,
     });
 
   const completeSimpleText = async ({
@@ -257,6 +263,7 @@ export async function generateTextWithModelId({
           openaiApiKey: apiKeys.openaiApiKey,
           openrouterApiKey: apiKeys.openrouterApiKey,
           openaiBaseUrlOverride: zaiBaseUrlOverride ?? openaiBaseUrlOverride,
+          requestOptions,
         });
         const model = resolveZaiModel({
           modelId: parsed.model,
@@ -282,6 +289,7 @@ export async function generateTextWithModelId({
           openaiApiKey: apiKeys.openaiApiKey,
           openrouterApiKey: apiKeys.openrouterApiKey,
           openaiBaseUrlOverride,
+          requestOptions,
         });
         const model = resolveNvidiaModel({
           modelId: parsed.model,
@@ -355,6 +363,7 @@ export async function generateTextWithModelId({
           xaiBaseUrlOverride,
           zaiBaseUrlOverride,
           forceChatCompletions,
+          requestOptions,
           retries: Math.max(0, maxRetries - attempt),
           onRetry,
         });
@@ -375,6 +384,7 @@ export async function generateTextWithModelId({
           xaiBaseUrlOverride,
           zaiBaseUrlOverride,
           forceChatCompletions,
+          requestOptions,
           retries: Math.max(0, maxRetries - attempt),
           onRetry,
         });
@@ -413,6 +423,7 @@ export async function streamTextWithModelId({
   googleBaseUrlOverride,
   xaiBaseUrlOverride,
   forceChatCompletions,
+  requestOptions,
 }: {
   modelId: string;
   apiKeys: LlmApiKeys;
@@ -427,6 +438,7 @@ export async function streamTextWithModelId({
   googleBaseUrlOverride?: string | null;
   xaiBaseUrlOverride?: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelRequestOptions;
 }): Promise<{
   textStream: AsyncIterable<string>;
   canonicalModelId: string;
@@ -449,5 +461,6 @@ export async function streamTextWithModelId({
     googleBaseUrlOverride,
     xaiBaseUrlOverride,
     forceChatCompletions,
+    requestOptions,
   });
 }

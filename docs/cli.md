@@ -24,9 +24,8 @@ If `--cli` is provided without a provider, auto selection is used with CLI enabl
 
 Codex GPT Fast:
 
-- `--model gpt-fast` (alias: `fast`) maps to `cli/codex/gpt-fast`.
-- Summarize runs Codex with model `gpt-5.5` and `service_tier="fast"`.
-- Requires `codex login` and consumes Codex fast-tier quota/cost.
+- `--model codex-fast` maps to `cli/codex/gpt-fast`.
+- OpenAI fast mode is not a CLI model. Use `--model openai/gpt-5.5 --fast --thinking medium`; see `docs/openai.md`.
 
 ## Auto mode
 

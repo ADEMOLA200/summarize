@@ -167,6 +167,9 @@ export async function resolveUrlSummaryExecution({
         openrouterProviders: model.fixedModelSpec.openrouterProviders,
         forceOpenRouter: model.fixedModelSpec.forceOpenRouter,
         requiredEnv: model.fixedModelSpec.requiredEnv,
+        ...(model.fixedModelSpec.requestOptions
+          ? { requestOptions: model.fixedModelSpec.requestOptions }
+          : {}),
         ...openaiOverrides,
       },
     ];

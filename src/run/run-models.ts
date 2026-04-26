@@ -1,4 +1,5 @@
 import type { CliProvider, ModelConfig, SummarizeConfig } from "../config.js";
+import { mergeModelRequestOptions } from "../llm/model-options.js";
 import type { RequestedModel } from "../model-spec.js";
 import { parseRequestedModelId } from "../model-spec.js";
 import { BUILTIN_MODELS } from "./constants.js";
@@ -38,6 +39,22 @@ function resolveRequestedCliModelFromConfig(
     userModelId: `cli/${requestedModel.cliProvider}/${configuredModel}`,
     cliModel: configuredModel,
   };
+}
+
+function applyModelConfigOptions(
+  requestedModel: RequestedModel,
+  modelConfig: ModelConfig | null,
+): RequestedModel {
+  if (requestedModel.kind !== "fixed" || requestedModel.transport === "cli") return requestedModel;
+  if (!modelConfig || !("id" in modelConfig)) return requestedModel;
+  const requestOptions = mergeModelRequestOptions(requestedModel.requestOptions, {
+    ...(modelConfig.serviceTier ? { serviceTier: modelConfig.serviceTier } : {}),
+    ...((modelConfig.reasoningEffort ?? modelConfig.thinking)
+      ? { reasoningEffort: modelConfig.reasoningEffort ?? modelConfig.thinking }
+      : {}),
+    ...(modelConfig.textVerbosity ? { textVerbosity: modelConfig.textVerbosity } : {}),
+  });
+  return requestOptions ? { ...requestedModel, requestOptions } : requestedModel;
 }
 
 export type ModelSelection = {
@@ -114,6 +131,12 @@ export function resolveModelSelection({
     requestedModelInputLower !== "auto" ? (modelMap.get(requestedModelInputLower) ?? null) : null;
   const namedModelConfig = namedModelMatch?.model ?? null;
   const isNamedModelSelection = Boolean(namedModelMatch);
+  const selectedModelConfig =
+    isNamedModelSelection && namedModelConfig
+      ? namedModelConfig
+      : requestedModelSource === "config"
+        ? (config?.model ?? null)
+        : null;
 
   const configForModelSelection =
     isNamedModelSelection && namedModelConfig
@@ -122,7 +145,12 @@ export function resolveModelSelection({
 
   const requestedModel: RequestedModel = (() => {
     if (isNamedModelSelection && namedModelConfig) {
-      if ("id" in namedModelConfig) return parseRequestedModelId(namedModelConfig.id);
+      if ("id" in namedModelConfig) {
+        return applyModelConfigOptions(
+          parseRequestedModelId(namedModelConfig.id),
+          namedModelConfig,
+        );
+      }
       if ("mode" in namedModelConfig && namedModelConfig.mode === "auto") return { kind: "auto" };
       throw new Error(
         `Invalid model "${namedModelMatch?.name ?? requestedModelInput}": unsupported model config`,
@@ -135,7 +163,7 @@ export function resolveModelSelection({
       );
     }
 
-    return parseRequestedModelId(requestedModelInput);
+    return applyModelConfigOptions(parseRequestedModelId(requestedModelInput), selectedModelConfig);
   })();
 
   const requestedModelResolved = resolveRequestedCliModelFromConfig(

@@ -144,7 +144,7 @@ See `docs/media.md` for detection and transcript rules.
 ## Model Selection UX
 
 - Settings:
-  - Model preset (Options → Advanced): `auto` | `gpt-fast` | `free` | custom string (e.g. `openai/gpt-5-mini`, `openrouter/...`).
+  - Model preset (Options → Advanced): `auto` | `free` | custom string (e.g. `openai/gpt-5-mini`, `openai/gpt-5.5`, `openrouter/...`). OpenAI fast service tier is configured via `openai.serviceTier`.
   - Length: `short|medium|long|xl|xxl` (or a character target like `20k`). Tooltips show target ranges + paragraph guidance (from `packages/core/src/prompts/summary-lengths.ts`).
   - Language: `auto` (match source) or a tag like `en`, `de`, `pt-BR` (or free-form like “German”).
   - Prompt override (advanced): custom instruction prefix (context + content still appended).

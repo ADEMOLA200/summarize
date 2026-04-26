@@ -2,6 +2,7 @@ import { generateTextWithModelId } from "../llm/generate-text.js";
 import { resolveGoogleModelForUsage } from "../llm/google-models.js";
 import type { LlmProvider } from "../llm/model-id.js";
 import type { parseGatewayStyleModelId } from "../llm/model-id.js";
+import type { ModelRequestOptions } from "../llm/model-options.js";
 import type { Prompt } from "../llm/prompt.js";
 
 export async function resolveModelIdForLlmCall({
@@ -54,6 +55,7 @@ export async function summarizeWithModelId({
   xaiBaseUrlOverride,
   zaiBaseUrlOverride,
   forceChatCompletions,
+  requestOptions,
   retries,
   onRetry,
 }: {
@@ -76,6 +78,7 @@ export async function summarizeWithModelId({
   xaiBaseUrlOverride?: string | null;
   zaiBaseUrlOverride?: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelRequestOptions;
   retries: number;
   onRetry?: (notice: {
     attempt: number;
@@ -99,6 +102,7 @@ export async function summarizeWithModelId({
     xaiBaseUrlOverride,
     zaiBaseUrlOverride,
     forceChatCompletions,
+    requestOptions,
     prompt,
     temperature: 0,
     maxOutputTokens,

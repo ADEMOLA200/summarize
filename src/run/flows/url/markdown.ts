@@ -1,6 +1,7 @@
 import { resolveGitHubModelsApiKey } from "../../../llm/github-models.js";
 import { createHtmlToMarkdownConverter } from "../../../llm/html-to-markdown.js";
 import { parseGatewayStyleModelId } from "../../../llm/model-id.js";
+import { mergeModelRequestOptions } from "../../../llm/model-options.js";
 import {
   type ConvertTranscriptToMarkdown,
   createTranscriptToMarkdownConverter,
@@ -17,6 +18,7 @@ export type MarkdownModel = {
   openaiApiKeyOverride?: string | null;
   openaiBaseUrlOverride?: string | null;
   forceChatCompletions?: boolean;
+  requestOptions?: ModelAttempt["requestOptions"];
   requiredEnv?: ModelAttempt["requiredEnv"];
 };
 
@@ -84,6 +86,7 @@ export function createMarkdownConverters(
           openaiApiKeyOverride: ctx.model.apiStatus.zaiApiKey,
           openaiBaseUrlOverride: ctx.model.apiStatus.zaiBaseUrl,
           forceChatCompletions: true,
+          requestOptions: ctx.model.requestedModel.requestOptions,
         };
       }
       if (ctx.model.fixedModelSpec?.requiredEnv === "NVIDIA_API_KEY") {
@@ -94,6 +97,7 @@ export function createMarkdownConverters(
           openaiApiKeyOverride: ctx.model.apiStatus.nvidiaApiKey,
           openaiBaseUrlOverride: ctx.model.apiStatus.nvidiaBaseUrl,
           forceChatCompletions: true,
+          requestOptions: ctx.model.requestedModel.requestOptions,
         };
       }
       if (ctx.model.fixedModelSpec?.requiredEnv === "GITHUB_TOKEN") {
@@ -104,6 +108,7 @@ export function createMarkdownConverters(
           openaiApiKeyOverride: resolveGitHubModelsApiKey(ctx.io.envForRun),
           openaiBaseUrlOverride: ctx.model.fixedModelSpec.openaiBaseUrlOverride ?? null,
           forceChatCompletions: true,
+          requestOptions: ctx.model.requestedModel.requestOptions,
         };
       }
       return {
@@ -111,6 +116,7 @@ export function createMarkdownConverters(
         forceOpenRouter: false,
         requiredEnv: ctx.model.fixedModelSpec?.requiredEnv,
         forceChatCompletions: ctx.model.openaiUseChatCompletions,
+        requestOptions: ctx.model.requestedModel.requestOptions,
       };
     }
 
@@ -235,6 +241,11 @@ export function createMarkdownConverters(
           forceChatCompletions:
             markdownModel.forceChatCompletions ??
             (ctx.model.openaiUseChatCompletions && markdownProvider === "openai"),
+          requestOptions: mergeModelRequestOptions(
+            ctx.model.openaiRequestOptions,
+            markdownModel.requestOptions,
+            ctx.model.openaiRequestOptionsOverride,
+          ),
           fetchImpl: ctx.io.fetch,
           retries: ctx.flags.retries,
           onRetry: createRetryLogger({
@@ -334,6 +345,11 @@ export function createMarkdownConverters(
           forceChatCompletions:
             markdownModel.forceChatCompletions ??
             (ctx.model.openaiUseChatCompletions && markdownProvider === "openai"),
+          requestOptions: mergeModelRequestOptions(
+            ctx.model.openaiRequestOptions,
+            markdownModel.requestOptions,
+            ctx.model.openaiRequestOptionsOverride,
+          ),
           fetchImpl: ctx.io.fetch,
           retries: ctx.flags.retries,
           onRetry: createRetryLogger({

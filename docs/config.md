@@ -253,7 +253,37 @@ Notes:
 
 - `auto` is reserved and can’t be defined as a preset.
 - `free` is built-in (OpenRouter `:free` candidates). Override it by defining `models.free` in your config, or regenerate it via `summarize refresh-free`.
-- `gpt-fast` and `fast` are built-in Codex GPT-5.5 Fast presets. Override them by defining `models.gpt-fast` or `models.fast` in your config.
+- `gpt-fast` and `fast` remain compatibility aliases for OpenAI GPT-5.5 Fast mode. Prefer `model: "openai/gpt-5.5"` plus `openai.serviceTier` / `openai.thinking`. `codex-fast` is the explicit Codex CLI fast preset.
+
+OpenAI request options can be set globally:
+
+```json
+{
+  "openai": {
+    "serviceTier": "fast",
+    "thinking": "medium",
+    "textVerbosity": "low"
+  }
+}
+```
+
+Or per preset:
+
+```json
+{
+  "models": {
+    "fast-mini": {
+      "id": "openai/gpt-5.4-mini",
+      "serviceTier": "fast",
+      "thinking": "low"
+    }
+  }
+}
+```
+
+`thinking` is an alias for `reasoningEffort`. Supported values: `none`, `low`, `medium`, `high`, `xhigh`; shorthand aliases include `off`, `min` (low), `mid`, `med`, `x-high`, and `extra-high`.
+
+`serviceTier: "fast"` is the summarize/Codex-facing spelling. Direct OpenAI requests map it to `service_tier="priority"`. CLI `--service-tier default` clears a configured tier for one run.
 
 Use a preset as your default `model`:
 

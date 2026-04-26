@@ -2,6 +2,8 @@ import type { CliProvider, SummarizeConfig } from "../config.js";
 import { loadSummarizeConfig } from "../config.js";
 import { parseVideoMode } from "../flags.js";
 import { type OutputLanguage, parseOutputLanguage } from "../language.js";
+import { parseOpenAiReasoningEffort, parseOpenAiServiceTier } from "../llm/model-options.js";
+import type { ModelRequestOptions } from "../llm/model-options.js";
 import { parseBooleanEnv } from "./env.js";
 
 export type ConfigState = {
@@ -13,6 +15,8 @@ export type ConfigState = {
   cliConfigForRun: SummarizeConfig["cli"] | undefined;
   configForCli: SummarizeConfig | null;
   openaiUseChatCompletions: boolean;
+  openaiRequestOptions: ModelRequestOptions | undefined;
+  openaiRequestOptionsOverride: ModelRequestOptions | undefined;
   configModelLabel: string | null;
 };
 
@@ -78,6 +82,41 @@ export function resolveConfigState({
     return typeof configValue === "boolean" ? configValue : false;
   })();
 
+  const openaiRequestOptions: ModelRequestOptions | undefined = (() => {
+    const options: ModelRequestOptions = {};
+    if (typeof config?.openai?.serviceTier === "string") {
+      options.serviceTier = config.openai.serviceTier;
+    }
+    if (config?.openai?.reasoningEffort ?? config?.openai?.thinking) {
+      options.reasoningEffort = config.openai.reasoningEffort ?? config.openai.thinking;
+    }
+    if (config?.openai?.textVerbosity) {
+      options.textVerbosity = config.openai.textVerbosity;
+    }
+    return Object.keys(options).length > 0 ? options : undefined;
+  })();
+
+  const openaiRequestOptionsOverride: ModelRequestOptions | undefined = (() => {
+    const options: ModelRequestOptions = {};
+    const rawServiceTier =
+      typeof programOpts.serviceTier === "string" ? programOpts.serviceTier : null;
+    if (programOpts.fast === true) {
+      options.serviceTier = "fast";
+    }
+    if (rawServiceTier) {
+      const serviceTier = parseOpenAiServiceTier(rawServiceTier, "--service-tier");
+      if (options.serviceTier && options.serviceTier !== serviceTier) {
+        throw new Error("Use either --fast or --service-tier (not both with different values).");
+      }
+      options.serviceTier = serviceTier;
+    }
+    const rawThinking = typeof programOpts.thinking === "string" ? programOpts.thinking : null;
+    if (rawThinking) {
+      options.reasoningEffort = parseOpenAiReasoningEffort(rawThinking, "--thinking");
+    }
+    return Object.keys(options).length > 0 ? options : undefined;
+  })();
+
   const configModelLabel = (() => {
     const model = config?.model;
     if (!model) return null;
@@ -96,6 +135,8 @@ export function resolveConfigState({
     cliConfigForRun,
     configForCli,
     openaiUseChatCompletions,
+    openaiRequestOptions,
+    openaiRequestOptionsOverride,
     configModelLabel,
   };
 }
