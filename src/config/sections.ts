@@ -67,10 +67,21 @@ function parseCliProviderConfig(raw: unknown, path: string, label: string): CliP
     typeof raw.extraArgs === "undefined"
       ? undefined
       : parseStringArray(raw.extraArgs, path, `cli.${label}.extraArgs`);
+  const isolated =
+    typeof raw.isolated === "boolean"
+      ? raw.isolated
+      : typeof raw.isolated === "undefined"
+        ? undefined
+        : (() => {
+            throw new Error(
+              `Invalid config file ${path}: "cli.${label}.isolated" must be a boolean.`,
+            );
+          })();
   return {
     ...(binaryValue ? { binary: binaryValue } : {}),
     ...(modelValue ? { model: modelValue } : {}),
     ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
+    ...(typeof isolated === "boolean" ? { isolated } : {}),
   };
 }
 

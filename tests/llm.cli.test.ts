@@ -1,4 +1,6 @@
 import fs from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CliProvider } from "../src/config.js";
 import { isCliDisabled, resolveCliBinary, runCliModel } from "../src/llm/cli.js";
@@ -433,6 +435,148 @@ describe("runCliModel", () => {
       config: null,
     });
     expect(result.text).toBe("ok");
+  });
+
+  it("isolates Codex summary runs from user config and repo rules", async () => {
+    const sourceCodexHome = await fs.mkdtemp(path.join(tmpdir(), "summarize-codex-source-"));
+    await fs.writeFile(path.join(sourceCodexHome, "auth.json"), '{"token":"ok"}', "utf8");
+    await fs.writeFile(path.join(sourceCodexHome, "config.toml"), "model = 'custom'\n", "utf8");
+    await fs.writeFile(path.join(sourceCodexHome, "AGENTS.md"), "private rule\n", "utf8");
+
+    let seenArgs: string[] = [];
+    let seenCwd: string | undefined;
+    let seenCodexHome: string | undefined;
+    const execFileImpl: ExecFileFn = ((_cmd, args, options, cb) => {
+      seenArgs = [...args];
+      seenCwd = typeof options?.cwd === "string" ? options.cwd : undefined;
+      seenCodexHome = options?.env?.CODEX_HOME;
+      if (!seenCodexHome) {
+        cb?.(new Error("missing isolated CODEX_HOME"), "", "");
+        return {
+          stdin: { write: () => {}, end: () => {} },
+        } as unknown as ReturnType<ExecFileFn>;
+      }
+      const outputIndex = args.indexOf("--output-last-message");
+      const outputPath = outputIndex === -1 ? null : args[outputIndex + 1];
+      if (!outputPath) {
+        cb?.(new Error("missing output path"), "", "");
+        return {
+          stdin: { write: () => {}, end: () => {} },
+        } as unknown as ReturnType<ExecFileFn>;
+      }
+      void Promise.all([
+        fs.readFile(path.join(seenCodexHome, "auth.json"), "utf8"),
+        fs
+          .access(path.join(seenCodexHome, "config.toml"))
+          .then(() => {
+            throw new Error("config.toml was copied into isolated CODEX_HOME");
+          })
+          .catch((error: unknown) => {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+            throw error;
+          }),
+        fs
+          .access(path.join(seenCodexHome, "AGENTS.md"))
+          .then(() => {
+            throw new Error("AGENTS.md was copied into isolated CODEX_HOME");
+          })
+          .catch((error: unknown) => {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+            throw error;
+          }),
+      ])
+        .then(([auth]) => {
+          expect(auth).toBe('{"token":"ok"}');
+          return fs.writeFile(outputPath, "ok", "utf8");
+        })
+        .then(
+          () => cb?.(null, "", ""),
+          (error) => cb?.(error as Error, "", ""),
+        );
+      return {
+        stdin: { write: () => {}, end: () => {} },
+      } as unknown as ReturnType<ExecFileFn>;
+    }) as ExecFileFn;
+
+    const result = await runCliModel({
+      provider: "codex",
+      prompt: "Test",
+      model: "gpt-5.2",
+      allowTools: false,
+      timeoutMs: 1000,
+      env: { CODEX_HOME: sourceCodexHome },
+      execFileImpl,
+      config: null,
+    });
+
+    const execIndex = seenArgs.indexOf("exec");
+    const cdIndex = seenArgs.indexOf("-C");
+    expect(result.text).toBe("ok");
+    expect(execIndex).toBeGreaterThanOrEqual(0);
+    expect(seenArgs.indexOf("--ephemeral")).toBeGreaterThan(execIndex);
+    expect(seenArgs.indexOf("--ignore-user-config")).toBeGreaterThan(execIndex);
+    expect(seenArgs.indexOf("--ignore-rules")).toBeGreaterThan(execIndex);
+    expect(cdIndex).toBeGreaterThan(execIndex);
+    expect(seenArgs[cdIndex + 1]).toContain("summarize-codex-cwd-");
+    expect(seenCwd).toBe(seenArgs[cdIndex + 1]);
+    expect(seenCodexHome).toContain("summarize-codex-home-");
+    expect(seenCodexHome).not.toBe(sourceCodexHome);
+  });
+
+  it("allows Codex isolation to be disabled for compatibility", async () => {
+    let seenArgs: string[] = [];
+    let seenCwd: string | undefined;
+    const execFileImpl = makeStub((args) => {
+      seenArgs = [...args];
+      return { stdout: "ok" };
+    });
+    const wrappedExecFileImpl: ExecFileFn = ((cmd, args, options, cb) => {
+      seenCwd = typeof options?.cwd === "string" ? options.cwd : undefined;
+      return execFileImpl(cmd, args, options, cb);
+    }) as ExecFileFn;
+
+    const result = await runCliModel({
+      provider: "codex",
+      prompt: "Test",
+      model: "gpt-5.2",
+      allowTools: false,
+      timeoutMs: 1000,
+      env: {},
+      execFileImpl: wrappedExecFileImpl,
+      config: { codex: { isolated: false } },
+    });
+
+    expect(result.text).toBe("ok");
+    expect(seenArgs).not.toContain("--ephemeral");
+    expect(seenArgs).not.toContain("--ignore-user-config");
+    expect(seenArgs).not.toContain("--ignore-rules");
+    expect(seenArgs).not.toContain("-C");
+    expect(seenCwd).toBeUndefined();
+  });
+
+  it("does not isolate Codex tool-enabled runs by default", async () => {
+    let seenArgs: string[] = [];
+    const execFileImpl = makeStub((args) => {
+      seenArgs = [...args];
+      return { stdout: "ok" };
+    });
+
+    const result = await runCliModel({
+      provider: "codex",
+      prompt: "Test",
+      model: "gpt-5.2",
+      allowTools: true,
+      timeoutMs: 1000,
+      env: {},
+      execFileImpl,
+      config: null,
+    });
+
+    expect(result.text).toBe("ok");
+    expect(seenArgs).not.toContain("--ephemeral");
+    expect(seenArgs).not.toContain("--ignore-user-config");
+    expect(seenArgs).not.toContain("--ignore-rules");
+    expect(seenArgs).not.toContain("-C");
   });
 
   it("maps Codex GPT fast alias to GPT-5.5 fast service tier", async () => {

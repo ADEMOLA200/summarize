@@ -18,6 +18,7 @@ export type ModelRequestOptions = {
 export type CliProviderConfig = {
   binary?: string;
   extraArgs?: string[];
+  isolated?: boolean;
   model?: string;
 };
 export type CliAutoFallbackConfig = {

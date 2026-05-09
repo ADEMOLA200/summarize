@@ -364,6 +364,7 @@ describe("config loading", () => {
         },
         codex: {
           binary: "codex",
+          isolated: false,
         },
         promptOverride: "Summarize this.",
         allowTools: true,
@@ -379,7 +380,7 @@ describe("config loading", () => {
           model: "sonnet",
           extraArgs: ["--foo"],
         },
-        codex: { binary: "codex" },
+        codex: { binary: "codex", isolated: false },
         promptOverride: "Summarize this.",
         allowTools: true,
         cwd: "/tmp",
@@ -533,6 +534,11 @@ describe("config loading", () => {
     expect(() => loadSummarizeConfig({ env: { HOME: rootProvider } })).toThrow(
       /cli\.gemini\.extraArgs/,
     );
+  });
+
+  it("rejects invalid cli provider isolation flag", () => {
+    const { root } = writeJsonConfig({ cli: { codex: { isolated: "nope" } } });
+    expect(() => loadSummarizeConfig({ env: { HOME: root } })).toThrow(/cli\.codex\.isolated/);
   });
 
   it("parses openai.useChatCompletions", () => {

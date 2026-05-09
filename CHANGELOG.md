@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- Codex CLI: isolate normal summary runs with `--ephemeral`, `--ignore-user-config`, `--ignore-rules`, a temporary cwd, and a sanitized temporary `CODEX_HOME` so local Codex context cannot bleed into summaries with little or no extracted content (#215, thanks @anntnzrb).
 - Daemon: write `~/.summarize/daemon.json` with owner-only permissions and tighten existing config paths before rewriting daemon tokens or captured provider env values (#214, thanks @Hinotoi-agent).
 - GitHub Models: ignore OpenAI-only request options such as `openai.thinking` / `--thinking` for `github-copilot/...` calls so Copilot summaries do not fail with GitHub Models `400` errors.
 - Google document summaries: send `temperature` and `maxOutputTokens` inside Gemini `generationConfig` for document requests, and include API error details when Google rejects the payload (#209, thanks @vincent-peng).

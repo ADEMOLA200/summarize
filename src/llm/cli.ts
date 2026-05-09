@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import type { CliConfig, CliProvider } from "../config.js";
 import type { ExecFileFn } from "../markitdown.js";
@@ -121,6 +121,12 @@ function resolveCodexModelAndArgs(
     extraArgs.push("-c", 'service_tier="fast"');
   }
   return { model: CODEX_GPT_FAST_MODEL, extraArgs };
+}
+
+async function copyCodexAuthFiles(sourceDir: string | undefined, targetDir: string): Promise<void> {
+  const codexHome = sourceDir?.trim() || path.join(homedir(), ".codex");
+  const authPath = path.join(codexHome, "auth.json");
+  await fs.copyFile(authPath, path.join(targetDir, "auth.json")).catch(() => {});
 }
 
 function appendJsonProviderArgs({
@@ -275,46 +281,72 @@ export async function runCliModel({
     );
     const outputDir = await fs.mkdtemp(path.join(tmpdir(), "summarize-codex-"));
     const outputPath = path.join(outputDir, "last-message.txt");
-    args.push(...codexExtraArgs);
-    args.push("exec", "--output-last-message", outputPath, "--skip-git-repo-check", "--json");
-    if (codexModel) {
-      args.push("-m", codexModel);
-    }
-    const hasVerbosityOverride = args.some((arg) => arg.includes("text.verbosity"));
-    if (!hasVerbosityOverride) {
-      args.push("-c", 'text.verbosity="medium"');
-    }
-    const { stdout } = await execCliWithInput({
-      execFileImpl: execFileFn,
-      cmd: binary,
-      args,
-      input: prompt,
-      timeoutMs,
-      env: effectiveEnv,
-      cwd,
-    });
-    const { usage, costUsd } = parseCodexUsageFromJsonl(stdout);
-    let fileText = "";
+    const shouldIsolateCodex = !allowTools && providerConfig?.isolated !== false;
+    const isolatedCwd =
+      shouldIsolateCodex && !cwd
+        ? await fs.mkdtemp(path.join(tmpdir(), "summarize-codex-cwd-"))
+        : null;
+    const isolatedCodexHome = shouldIsolateCodex
+      ? await fs.mkdtemp(path.join(tmpdir(), "summarize-codex-home-"))
+      : null;
     try {
-      fileText = (await fs.readFile(outputPath, "utf8")).trim();
-    } catch {
-      fileText = "";
-    }
-    if (fileText) {
-      return { text: fileText, usage, costUsd };
-    }
-    const parsedStdout = parseCodexOutputFromJsonl(stdout);
-    if (parsedStdout.text) {
-      return { text: parsedStdout.text, usage, costUsd };
-    }
-    if (parsedStdout.sawStructuredEvent) {
+      if (isolatedCodexHome) {
+        await copyCodexAuthFiles(effectiveEnv.CODEX_HOME, isolatedCodexHome);
+      }
+      args.push(...codexExtraArgs);
+      args.push("exec");
+      if (shouldIsolateCodex) {
+        args.push("--ephemeral", "--ignore-user-config", "--ignore-rules");
+        if (isolatedCwd) args.push("-C", isolatedCwd);
+      }
+      args.push("--output-last-message", outputPath, "--skip-git-repo-check", "--json");
+      if (codexModel) {
+        args.push("-m", codexModel);
+      }
+      const hasVerbosityOverride = args.some((arg) => arg.includes("text.verbosity"));
+      if (!hasVerbosityOverride) {
+        args.push("-c", 'text.verbosity="medium"');
+      }
+      const { stdout } = await execCliWithInput({
+        execFileImpl: execFileFn,
+        cmd: binary,
+        args,
+        input: prompt,
+        timeoutMs,
+        env: isolatedCodexHome ? { ...effectiveEnv, CODEX_HOME: isolatedCodexHome } : effectiveEnv,
+        cwd: isolatedCwd ?? cwd,
+      });
+      const { usage, costUsd } = parseCodexUsageFromJsonl(stdout);
+      let fileText = "";
+      try {
+        fileText = (await fs.readFile(outputPath, "utf8")).trim();
+      } catch {
+        fileText = "";
+      }
+      if (fileText) {
+        return { text: fileText, usage, costUsd };
+      }
+      const parsedStdout = parseCodexOutputFromJsonl(stdout);
+      if (parsedStdout.text) {
+        return { text: parsedStdout.text, usage, costUsd };
+      }
+      if (parsedStdout.sawStructuredEvent) {
+        throw new Error("CLI returned empty output");
+      }
+      const stdoutText = stdout.trim();
+      if (stdoutText) {
+        return { text: stdoutText, usage, costUsd };
+      }
       throw new Error("CLI returned empty output");
+    } finally {
+      await fs.rm(outputDir, { recursive: true, force: true }).catch(() => {});
+      if (isolatedCwd) {
+        await fs.rm(isolatedCwd, { recursive: true, force: true }).catch(() => {});
+      }
+      if (isolatedCodexHome) {
+        await fs.rm(isolatedCodexHome, { recursive: true, force: true }).catch(() => {});
+      }
     }
-    const stdoutText = stdout.trim();
-    if (stdoutText) {
-      return { text: stdoutText, usage, costUsd };
-    }
-    throw new Error("CLI returned empty output");
   }
 
   if (provider === "copilot") {

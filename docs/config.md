@@ -385,6 +385,7 @@ Notes:
 - Auto fallback stores the last successful provider in `~/.summarize/cli-state.json` and prioritizes it on the next run.
 - `cli.<provider>.binary` overrides CLI binary discovery.
 - `cli.<provider>.extraArgs` appends extra CLI args.
+- `cli.codex.isolated` defaults to `true` for normal summaries, adding Codex ephemeral/no-user-config/no-rules flags, a temporary cwd, and a sanitized temporary `CODEX_HOME` that carries auth only. Set it to `false` only when local Codex config/rules are intentional.
 
 ## OpenAI config
 
